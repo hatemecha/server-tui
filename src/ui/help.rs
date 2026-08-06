@@ -1,0 +1,27 @@
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+use crate::ui::theme::Theme;
+use crate::APP_NAME;
+
+pub fn draw_help(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    let text = format!(
+        "{APP_NAME} — help\n\n\
+Screens: 1 Dashboard  2 Processes  3 Services  4 Logs  5 Storage\n\
+Global: Tab focus  / search  r refresh  ? help  q / Ctrl+C quit  Esc cancel\n\n\
+Processes: t SIGTERM  K SIGKILL  s sort  c full command\n\
+Services:  s start  x stop  r restart  R reload  e enable  d disable  l logs  f failed\n\
+Logs:      f follow  n/N next/prev match  p min priority  w wrap\n\
+Storage:   Enter open  Backspace parent  s sort  a apparent/disk  x stay-on-fs  Esc cancel scan\n\n\
+Modes: --demo  --read-only  --no-color  --ascii\n\
+Config: ~/.config/server-tui/config.toml\n\n\
+Esc closes this dialog."
+    );
+    let p = Paragraph::new(text).wrap(Wrap { trim: false }).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Help")
+            .border_style(theme.accent()),
+    );
+    frame.render_widget(p, area);
+}

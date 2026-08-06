@@ -1,0 +1,14 @@
+/target/
+**/*.rs.bk
+*.swp
+*.swo
+.DS_Store
+*.log
+/.idea/
+/.vscode/
+/server-tui.log
+*.pem
+*.key
+.env
+.env.*
+!.env.example

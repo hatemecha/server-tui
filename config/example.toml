@@ -1,0 +1,19 @@
+refresh_ms = 1000
+process_refresh_ms = 2000
+service_refresh_ms = 5000
+disk_refresh_ms = 10000
+temperature_refresh_ms = 5000
+memory_refresh_ms = 2000
+
+default_scan_path = "~"
+follow_symlinks = false
+stay_on_filesystem = true
+
+color = true
+unicode = true
+confirm_sigterm = true
+confirm_sigkill = true
+confirm_service_actions = true
+
+max_log_entries = 5000
+metric_history_size = 60

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --all
+
+      - name: Release build
+        run: cargo build --release
+
+      # Future release matrix (document only until validated):
+      # x86_64-unknown-linux-gnu (CI above)
+      # x86_64-unknown-linux-musl (needs musl toolchain + explicit test)
+      # aarch64-unknown-linux-gnu (needs cross or native runner)
