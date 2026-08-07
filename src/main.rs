@@ -9,13 +9,16 @@ use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing_subscriber::EnvFilter;
 
 use server_tui::app::event::{AppEvent, OperationResult};
 use server_tui::app::state::AppState;
 use server_tui::app::update::{apply_event, SideEffect};
-use server_tui::cli::Cli;
+use server_tui::cli::{Cli, Commands};
 use server_tui::config::{expand_tilde, Config};
+use server_tui::diagnostics::{compute_health_status, evaluate, format_text_report};
+use server_tui::doctor::run_doctor;
 use server_tui::error::AppError;
 use server_tui::providers::demo::DemoProviders;
 use server_tui::providers::linux::linux_bundle;
@@ -26,16 +29,20 @@ use server_tui::{APP_NAME, APP_VERSION};
 
 #[tokio::main]
 async fn main() {
-    if let Err(err) = run().await {
-        // Best effort: ensure message is visible after terminal restore.
+    let cli = Cli::parse();
+    if let Some(Commands::Doctor(args)) = cli.command.clone() {
+        let code = run_doctor(args).await;
+        std::process::exit(i32::from(code));
+    }
+
+    if let Err(err) = run(cli).await {
         eprintln!("{APP_NAME} error: {}", err.user_message());
         tracing::error!("{err}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), AppError> {
-    let cli = Cli::parse();
+async fn run(cli: Cli) -> Result<(), AppError> {
     init_logging(cli.debug_log.as_ref())?;
 
     let (mut config, cfg_path) = Config::load_or_default(cli.config.as_deref())?;
@@ -63,7 +70,7 @@ async fn run() -> Result<(), AppError> {
     let providers = if cli.demo {
         DemoProviders::bundle(cli.read_only)
     } else {
-        linux_bundle(cli.read_only)
+        linux_bundle(cli.read_only, &config)
     };
 
     let mut state = AppState::new(
@@ -107,7 +114,6 @@ fn init_logging(path: Option<&PathBuf>) -> Result<(), AppError> {
             .with_ansi(false)
             .init();
     } else {
-        // Discard by default so TUI is not corrupted.
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_writer(std::io::sink)
@@ -125,8 +131,8 @@ async fn run_loop(
     let providers = Arc::new(providers);
     let (tx, mut rx) = mpsc::channel::<AppEvent>(256);
     let app_cancel = CancellationToken::new();
+    let tracker = TaskTracker::new();
 
-    // Size
     let size = terminal
         .terminal()
         .size()
@@ -139,13 +145,13 @@ async fn run_loop(
         tx.clone(),
         app_cancel.clone(),
         config.clone(),
+        &tracker,
     );
 
-    // Initial fetches
     {
         let p = Arc::clone(&providers);
         let tx = tx.clone();
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             match p.metrics.collect().await {
                 Ok(m) => {
                     let _ = tx.send(AppEvent::MetricsUpdated(m)).await;
@@ -161,7 +167,6 @@ async fn run_loop(
     let mut follow_cancel: Option<CancellationToken> = None;
     let mut scan_cancel: Option<CancellationToken> = None;
 
-    // Render tick (input-driven + periodic redraw for animating demos)
     let mut redraw = tokio::time::interval(Duration::from_millis(config.refresh_ms.max(200)));
     redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -206,6 +211,7 @@ async fn run_loop(
                                 &mut follow_cancel,
                                 &mut scan_cancel,
                                 &config,
+                                &tracker,
                             ).await;
                         }
                     }
@@ -232,6 +238,7 @@ async fn run_loop(
                             &mut follow_cancel,
                             &mut scan_cancel,
                             &config,
+                            &tracker,
                         ).await;
                     }
                     None => break,
@@ -240,6 +247,7 @@ async fn run_loop(
         }
     }
 
+    // Structured shutdown: cancel → wait children → timeout → abort.
     app_cancel.cancel();
     if let Some(c) = follow_cancel.take() {
         c.cancel();
@@ -247,8 +255,12 @@ async fn run_loop(
     if let Some(c) = scan_cancel.take() {
         c.cancel();
     }
-    // Grace for child cleanup (journalctl / scan tasks).
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    tracker.close();
+    let shutdown = tokio::time::timeout(Duration::from_secs(2), tracker.wait());
+    if shutdown.await.is_err() {
+        tracing::warn!("task shutdown timed out; aborting remaining tasks");
+        // TaskTracker wait timed out; remaining tasks drop on runtime shutdown.
+    }
     Ok(())
 }
 
@@ -257,14 +269,14 @@ fn spawn_pollers(
     tx: mpsc::Sender<AppEvent>,
     cancel: CancellationToken,
     config: Config,
+    tracker: &TaskTracker,
 ) {
-    // Metrics
     {
         let providers = Arc::clone(&providers);
         let tx = tx.clone();
         let cancel = cancel.clone();
         let ms = config.refresh_ms;
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(ms));
             loop {
                 tokio::select! {
@@ -279,13 +291,12 @@ fn spawn_pollers(
             }
         });
     }
-    // Processes
     {
         let providers = Arc::clone(&providers);
         let tx = tx.clone();
         let cancel = cancel.clone();
         let ms = config.process_refresh_ms;
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(ms));
             loop {
                 tokio::select! {
@@ -300,13 +311,12 @@ fn spawn_pollers(
             }
         });
     }
-    // Services
     {
         let providers = Arc::clone(&providers);
         let tx = tx.clone();
         let cancel = cancel.clone();
         let ms = config.service_refresh_ms;
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(ms));
             loop {
                 tokio::select! {
@@ -333,13 +343,14 @@ async fn handle_effects(
     follow_cancel: &mut Option<CancellationToken>,
     scan_cancel: &mut Option<CancellationToken>,
     config: &Config,
+    tracker: &TaskTracker,
 ) {
     for effect in effects {
         match effect {
             SideEffect::RefreshMetrics => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     match p.metrics.collect().await {
                         Ok(m) => {
                             let _ = tx.send(AppEvent::MetricsUpdated(m)).await;
@@ -353,7 +364,7 @@ async fn handle_effects(
             SideEffect::RefreshProcesses => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     match p.processes.list().await {
                         Ok(list) => {
                             let _ = tx.send(AppEvent::ProcessesUpdated(list)).await;
@@ -367,7 +378,7 @@ async fn handle_effects(
             SideEffect::RefreshServices => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     match p.services.list_services().await {
                         Ok(list) => {
                             let _ = tx.send(AppEvent::ServicesUpdated(list)).await;
@@ -381,13 +392,56 @@ async fn handle_effects(
             SideEffect::RefreshLogs { unit } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     match p.logs.recent(unit.as_deref(), 200).await {
                         Ok(entries) => {
                             let _ = tx.send(AppEvent::LogsUpdated(entries)).await;
                         }
                         Err(e) => {
                             let _ = tx.send(AppEvent::Error(e)).await;
+                        }
+                    }
+                });
+            }
+            SideEffect::RefreshDiagnostics => {
+                let p = Arc::clone(providers);
+                let tx = tx.clone();
+                tracker.spawn(async move {
+                    match p.diagnostics.probe().await {
+                        Ok(snap) => {
+                            let findings = evaluate(&snap);
+                            let health = compute_health_status(
+                                &findings,
+                                snap.systemd_observable,
+                                snap.journal_observable,
+                            );
+                            let report =
+                                format_text_report(health, &findings, false, &snap.probes_degraded);
+                            let _ = tx
+                                .send(AppEvent::DiagnosticsUpdated {
+                                    findings,
+                                    health,
+                                    report,
+                                    probes_degraded: snap.probes_degraded,
+                                })
+                                .await;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(e)).await;
+                        }
+                    }
+                });
+            }
+            SideEffect::FetchServiceDetails { unit } => {
+                let p = Arc::clone(providers);
+                let tx = tx.clone();
+                tracker.spawn(async move {
+                    match p.services.details(&unit).await {
+                        Ok(info) => {
+                            let _ = tx.send(AppEvent::ServiceDetails(info)).await;
+                        }
+                        Err(e) => {
+                            tracing::debug!("service details: {e}");
                         }
                     }
                 });
@@ -401,7 +455,7 @@ async fn handle_effects(
                 let tx = tx.clone();
                 if state.demo {
                     let p = Arc::clone(providers);
-                    tokio::spawn(async move {
+                    tracker.spawn(async move {
                         while !token.is_cancelled() {
                             tokio::time::sleep(Duration::from_millis(500)).await;
                             if let Ok(entries) = p.logs.recent(unit.as_deref(), 1).await {
@@ -412,7 +466,7 @@ async fn handle_effects(
                 } else {
                     let (log_tx, mut log_rx) = mpsc::channel(32);
                     let follow_token = token.clone();
-                    tokio::spawn(async move {
+                    tracker.spawn(async move {
                         let _ = server_tui::providers::linux::journal::follow_journal(
                             unit,
                             follow_token,
@@ -422,7 +476,7 @@ async fn handle_effects(
                     });
                     let tx2 = tx.clone();
                     let token2 = token.clone();
-                    tokio::spawn(async move {
+                    tracker.spawn(async move {
                         loop {
                             tokio::select! {
                                 _ = token2.cancelled() => break,
@@ -455,7 +509,7 @@ async fn handle_effects(
                 let stay = state.stay_on_fs;
                 let follow = config.follow_symlinks;
                 let (prog_tx, mut prog_rx) = mpsc::channel(32);
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     while let Some(prog) = prog_rx.recv().await {
                         let _ = tx_prog.send(AppEvent::StorageProgress(prog)).await;
                     }
@@ -466,7 +520,7 @@ async fn handle_effects(
                 } else {
                     path
                 };
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     let result = p.storage.scan(path, stay, follow, token, prog_tx).await;
                     let _ = tx2.send(AppEvent::StorageFinished(result)).await;
                 });
@@ -483,10 +537,10 @@ async fn handle_effects(
             } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     let result = match p.admin.send_signal(pid, signal, Some(start_time)).await {
                         Ok(()) => OperationResult::Success(format!(
-                            "{} sent to PID {pid}",
+                            "{} delivered to PID {pid}",
                             signal.label()
                         )),
                         Err(e) => OperationResult::Failure(e),
@@ -497,7 +551,7 @@ async fn handle_effects(
             SideEffect::ServiceAction { unit, action } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                tokio::spawn(async move {
+                tracker.spawn(async move {
                     let result = match p.admin.service_action(&unit, action).await {
                         Ok(()) => {
                             OperationResult::Success(format!("{} {} ok", action.label(), unit))

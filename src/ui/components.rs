@@ -1,12 +1,32 @@
-//! Shared UI widgets.
+//! Shared UI widgets and contextual key hints.
 
 use ratatui::prelude::*;
+use ratatui::symbols;
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Sparkline};
 
 use crate::app::state::AppState;
 use crate::ui::theme::Theme;
 
-pub fn gauge<'a>(theme: Theme, title: &'a str, ratio: f64, label: &'a str) -> Gauge<'a> {
+/// ASCII-safe bar ladder for `--ascii` terminals.
+const ASCII_BAR_SET: symbols::bar::Set = symbols::bar::Set {
+    full: "#",
+    seven_eighths: "#",
+    three_quarters: "=",
+    five_eighths: "=",
+    half: "=",
+    three_eighths: "-",
+    one_quarter: "-",
+    one_eighth: ".",
+    empty: " ",
+};
+
+pub fn gauge(
+    theme: Theme,
+    title: impl Into<String>,
+    ratio: f64,
+    label: impl Into<String>,
+    ascii: bool,
+) -> Gauge<'static> {
     let ratio = ratio.clamp(0.0, 1.0);
     let style = if ratio > 0.9 {
         theme.err()
@@ -16,32 +36,201 @@ pub fn gauge<'a>(theme: Theme, title: &'a str, ratio: f64, label: &'a str) -> Ga
         theme.ok()
     };
     Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(Block::default().borders(Borders::ALL).title(title.into()))
         .gauge_style(style)
         .ratio(ratio)
-        .label(label.to_string())
+        .label(label.into())
+        .use_unicode(!ascii)
 }
 
-pub fn sparkline<'a>(theme: Theme, title: &'a str, data: &'a [u64], _ascii: bool) -> Sparkline<'a> {
-    Sparkline::default()
-        .block(Block::default().borders(Borders::ALL).title(title))
+pub fn sparkline<'a>(
+    theme: Theme,
+    title: impl Into<String>,
+    data: &'a [u64],
+    ascii: bool,
+) -> Sparkline<'a> {
+    let mut spark = Sparkline::default()
+        .block(Block::default().borders(Borders::ALL).title(title.into()))
         .style(theme.accent())
-        .data(data)
+        .data(data);
+    if ascii {
+        spark = spark.bar_set(ASCII_BAR_SET);
+    }
+    spark
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KeyHint {
+    pub key: &'static str,
+    pub action: &'static str,
 }
 
 pub fn footer_hints(state: &AppState) -> String {
     if state.searching {
-        return format!("search: {}_  Esc clear", state.search_query);
+        let target = if state.glossary_open() {
+            "glossary"
+        } else {
+            state.screen.label()
+        };
+        return format!("/{target}: {}_  Enter · Esc", state.current_search());
     }
-    let base = "Tab focus · / search · r refresh · ? help · q quit";
-    let extra = match state.screen {
-        crate::app::Screen::Processes => " · t SIGTERM · K SIGKILL · s sort · c cmd",
-        crate::app::Screen::Services => " · s start · x stop · r restart · l logs · f failed",
-        crate::app::Screen::Logs => " · f follow · n/N match · p priority · w wrap",
-        crate::app::Screen::Storage => " · Enter open · Backspace up · s sort · Esc cancel",
-        crate::app::Screen::Dashboard => "",
-    };
-    format!("{base}{extra}")
+
+    let mut hints: Vec<KeyHint> = vec![KeyHint {
+        key: "Tab",
+        action: "focus",
+    }];
+
+    if state.search_supported() {
+        hints.push(KeyHint {
+            key: "/",
+            action: "search",
+        });
+    }
+
+    hints.extend_from_slice(&[
+        KeyHint {
+            key: "r",
+            action: "refresh",
+        },
+        KeyHint {
+            key: "g",
+            action: "glossary",
+        },
+        KeyHint {
+            key: "?",
+            action: "help",
+        },
+        KeyHint {
+            key: "q",
+            action: "quit",
+        },
+    ]);
+
+    match state.screen {
+        crate::app::Screen::Processes => {
+            hints.extend_from_slice(&[
+                KeyHint {
+                    key: "t",
+                    action: "SIGTERM",
+                },
+                KeyHint {
+                    key: "K",
+                    action: "SIGKILL",
+                },
+                KeyHint {
+                    key: "s",
+                    action: "sort",
+                },
+            ]);
+        }
+        crate::app::Screen::Services => {
+            hints.extend_from_slice(&[
+                KeyHint {
+                    key: "s/x/r",
+                    action: "start/stop/restart",
+                },
+                KeyHint {
+                    key: "l",
+                    action: "logs",
+                },
+                KeyHint {
+                    key: "f",
+                    action: "failed",
+                },
+            ]);
+        }
+        crate::app::Screen::Logs => {
+            hints.extend_from_slice(&[
+                KeyHint {
+                    key: "f",
+                    action: "follow",
+                },
+                KeyHint {
+                    key: "n/N",
+                    action: "match",
+                },
+                KeyHint {
+                    key: "p",
+                    action: "priority",
+                },
+            ]);
+        }
+        crate::app::Screen::Storage => {
+            hints.extend_from_slice(&[
+                KeyHint {
+                    key: "Enter",
+                    action: "open",
+                },
+                KeyHint {
+                    key: "Backspace",
+                    action: "up",
+                },
+                KeyHint {
+                    key: "Esc",
+                    action: "cancel",
+                },
+            ]);
+        }
+        crate::app::Screen::Diagnostics => {
+            hints.extend_from_slice(&[
+                KeyHint {
+                    key: "Enter",
+                    action: "open",
+                },
+                KeyHint {
+                    key: "o",
+                    action: "report",
+                },
+                KeyHint {
+                    key: "a",
+                    action: "ack",
+                },
+            ]);
+        }
+        crate::app::Screen::Dashboard => {}
+    }
+
+    // Show active filter even when not editing.
+    if !state.current_search().is_empty()
+        && (state.screen.supports_search() || state.glossary_open())
+    {
+        hints.insert(
+            0,
+            KeyHint {
+                key: "Esc",
+                action: "clear-filter",
+            },
+        );
+    }
+
+    format_hints(&hints, state.width)
+}
+
+fn format_hints(hints: &[KeyHint], width: u16) -> String {
+    let sep = " · ";
+    let parts: Vec<String> = hints
+        .iter()
+        .map(|h| format!("{} {}", h.key, h.action))
+        .collect();
+    let full = parts.join(sep);
+    if width >= 100 {
+        return full;
+    }
+    // Compact: drop lower-priority trailing hints until it fits.
+    let budget = width.saturating_sub(4) as usize;
+    let mut out = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        let candidate = if out.is_empty() {
+            part.clone()
+        } else {
+            format!("{out}{sep}{part}")
+        };
+        if candidate.len() > budget && i > 2 {
+            break;
+        }
+        out = candidate;
+    }
+    out
 }
 
 pub fn keyed_line(theme: Theme, label: &str, value: &str) -> Line<'static> {
@@ -57,4 +246,48 @@ pub fn empty_panel(theme: Theme, msg: &str) -> Paragraph<'_> {
             .borders(Borders::ALL)
             .border_style(theme.border()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use std::path::PathBuf;
+
+    #[test]
+    fn footer_compacts_on_narrow() {
+        let mut state = AppState::new(
+            Config::default(),
+            true,
+            true,
+            true,
+            false,
+            PathBuf::from("/tmp"),
+        );
+        state.screen = crate::app::Screen::Processes;
+        state.width = 70;
+        let narrow = footer_hints(&state);
+        state.width = 120;
+        let wide = footer_hints(&state);
+        assert!(wide.len() >= narrow.len());
+    }
+
+    #[test]
+    fn dashboard_footer_omits_search_hint() {
+        let mut state = AppState::new(
+            Config::default(),
+            true,
+            true,
+            true,
+            false,
+            PathBuf::from("/tmp"),
+        );
+        state.screen = crate::app::Screen::Dashboard;
+        state.width = 120;
+        let dash = footer_hints(&state);
+        assert!(!dash.contains("/ search"), "{dash}");
+        state.screen = crate::app::Screen::Processes;
+        let procs = footer_hints(&state);
+        assert!(procs.contains("/ search"), "{procs}");
+    }
 }

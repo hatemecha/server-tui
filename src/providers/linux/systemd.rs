@@ -1,6 +1,7 @@
 //! systemd integration via D-Bus (zbus).
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -9,9 +10,9 @@ use zbus::zvariant::OwnedObjectPath;
 use zbus::Connection;
 
 use crate::error::AppError;
-use crate::model::{ServiceActionKind, ServiceInfo};
+use crate::model::{ServiceActionKind, ServiceInfo, UnitFileState, UnitRegistry};
 use crate::providers::ServiceProvider;
-use crate::sanitize::{sanitize_cell, sanitize_text};
+use crate::sanitize::{sanitize_cell, sanitize_path_display, sanitize_text};
 
 #[proxy(
     default_service = "org.freedesktop.systemd1",
@@ -37,6 +38,10 @@ trait SystemdManager {
         )>,
     >;
 
+    /// Bulk enablement states — avoids N× GetUnitFileState.
+    #[zbus(name = "ListUnitFiles")]
+    async fn list_unit_files(&self) -> zbus::Result<Vec<(String, String)>>;
+
     async fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     async fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     async fn restart_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
@@ -59,6 +64,9 @@ trait SystemdManager {
 
     #[zbus(name = "GetUnitFileState")]
     async fn get_unit_file_state(&self, file: &str) -> zbus::Result<String>;
+
+    #[zbus(name = "GetUnit")]
+    async fn get_unit(&self, name: &str) -> zbus::Result<OwnedObjectPath>;
 }
 
 #[proxy(
@@ -68,23 +76,36 @@ trait SystemdManager {
 trait SystemdUnit {
     #[zbus(property)]
     fn fragment_path(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn description(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn load_state(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn active_state(&self) -> zbus::Result<String>;
+
+    #[zbus(property)]
+    fn sub_state(&self) -> zbus::Result<String>;
 }
 
 pub struct LinuxServiceProvider {
-    known_units: Mutex<HashMap<String, ServiceInfo>>,
-}
-
-impl Default for LinuxServiceProvider {
-    fn default() -> Self {
-        Self::new()
-    }
+    registry: UnitRegistry,
+    /// Optional fragment_path cache filled only by details().
+    details_cache: Mutex<HashMap<String, ServiceInfo>>,
 }
 
 impl LinuxServiceProvider {
-    pub fn new() -> Self {
+    pub fn new(registry: UnitRegistry) -> Self {
         Self {
-            known_units: Mutex::new(HashMap::new()),
+            registry,
+            details_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn registry(&self) -> &UnitRegistry {
+        &self.registry
     }
 
     async fn connection() -> Result<Connection, AppError> {
@@ -93,9 +114,21 @@ impl LinuxServiceProvider {
             .map_err(|e| AppError::Systemd(format!("D-Bus system bus: {e}")))
     }
 
-    pub async fn perform_action(unit: &str, action: ServiceActionKind) -> Result<(), AppError> {
+    pub async fn perform_action(
+        unit: &str,
+        action: ServiceActionKind,
+        registry: Option<&UnitRegistry>,
+    ) -> Result<(), AppError> {
         if !unit_looks_safe(unit) {
             return Err(AppError::Systemd("invalid unit name".into()));
+        }
+        if let Some(reg) = registry {
+            // Empty registry means list has not completed yet — refuse rather than guess.
+            if reg.is_empty() || !reg.contains(unit) {
+                return Err(AppError::Systemd(format!(
+                    "refusing action on unregistered unit {unit}"
+                )));
+            }
         }
         let conn = Self::connection().await?;
         let manager = SystemdManagerProxy::new(&conn)
@@ -155,19 +188,38 @@ impl LinuxServiceProvider {
 
 fn map_systemd_error(action: ServiceActionKind, unit: &str, err: zbus::Error) -> AppError {
     let msg = err.to_string();
+    // Prefer accurate systemd/D-Bus policy wording unless Polkit is explicitly indicated.
+    let lower = msg.to_ascii_lowercase();
+    let polkit_evidence = lower.contains("polkit")
+        || lower.contains("org.freedesktop.policykit")
+        || msg.contains("InteractiveAuthorizationRequired");
     if msg.contains("AccessDenied")
         || msg.contains("InteractiveAuthorizationRequired")
-        || msg.contains("permission")
-        || msg.contains("Permission")
+        || lower.contains("permission")
     {
-        AppError::Permission(format!(
-            "No fue posible {} {}. Permiso denegado por systemd/Polkit.",
-            action.label(),
-            unit
-        ))
+        if polkit_evidence {
+            AppError::Permission(format!(
+                "No fue posible {} {}. Permiso denegado (systemd/D-Bus; evidencia Polkit en el error).",
+                action.label(),
+                unit
+            ))
+        } else {
+            AppError::Permission(format!(
+                "No fue posible {} {}. Permiso denegado por política systemd/D-Bus.",
+                action.label(),
+                unit
+            ))
+        }
     } else {
         AppError::Systemd(format!("No fue posible {} {unit}: {msg}", action.label()))
     }
+}
+
+fn unit_file_basename(path_or_name: &str) -> String {
+    Path::new(path_or_name)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path_or_name.to_string())
 }
 
 #[async_trait]
@@ -183,7 +235,19 @@ impl ServiceProvider for LinuxServiceProvider {
             .await
             .map_err(|e| AppError::Systemd(e.to_string()))?;
 
+        // One bulk call for enablement states.
+        let mut file_states: HashMap<String, UnitFileState> = HashMap::new();
+        if let Ok(files) = manager.list_unit_files().await {
+            for (path, state) in files {
+                let name = unit_file_basename(&path);
+                if name.ends_with(".service") {
+                    file_states.insert(name, UnitFileState::parse(&state));
+                }
+            }
+        }
+
         let mut services = Vec::new();
+        let mut registered = Vec::new();
         for (
             name,
             description,
@@ -200,48 +264,101 @@ impl ServiceProvider for LinuxServiceProvider {
             if !name.ends_with(".service") {
                 continue;
             }
-            let enabled = manager.get_unit_file_state(&name).await.ok().map(|s| {
-                matches!(
-                    s.as_str(),
-                    "enabled" | "enabled-runtime" | "static" | "linked" | "linked-runtime"
-                )
-            });
+            let unit_file_state = file_states
+                .get(&name)
+                .copied()
+                .unwrap_or(UnitFileState::Unknown);
 
-            let fragment_path = {
-                let unit_proxy = SystemdUnitProxy::builder(&conn)
-                    .path(path.clone())
-                    .map_err(|e| AppError::Systemd(e.to_string()))?
-                    .build()
-                    .await
-                    .ok();
-                match unit_proxy {
-                    Some(p) => p.fragment_path().await.ok(),
-                    None => None,
-                }
-            };
-
+            let unit = sanitize_cell(&name);
+            registered.push(unit.clone());
             services.push(ServiceInfo {
-                unit: sanitize_cell(&name),
+                unit,
                 description: sanitize_text(&description),
                 load_state: sanitize_cell(&load_state),
                 active_state: sanitize_cell(&active_state),
                 sub_state: sanitize_cell(&sub_state),
                 unit_path: path.to_string(),
-                enabled,
-                fragment_path: fragment_path.map(|p| sanitize_text(&p)),
+                unit_file_state,
+                // Fragment path is fetched on demand via details().
+                fragment_path: None,
             });
         }
 
         services.sort_by(|a, b| a.unit.cmp(&b.unit));
+        self.registry.replace_all(registered);
 
-        if let Ok(mut map) = self.known_units.lock() {
-            map.clear();
-            for s in &services {
-                map.insert(s.unit.clone(), s.clone());
+        Ok(services)
+    }
+
+    async fn details(&self, unit: &str) -> Result<ServiceInfo, AppError> {
+        if !unit_looks_safe(unit) {
+            return Err(AppError::Systemd("invalid unit name".into()));
+        }
+        if let Ok(cache) = self.details_cache.lock() {
+            if let Some(cached) = cache.get(unit) {
+                return Ok(cached.clone());
             }
         }
 
-        Ok(services)
+        let conn = Self::connection().await?;
+        let manager = SystemdManagerProxy::new(&conn)
+            .await
+            .map_err(|e| AppError::Systemd(e.to_string()))?;
+
+        let path = manager
+            .get_unit(unit)
+            .await
+            .map_err(|e| AppError::Systemd(e.to_string()))?;
+
+        let unit_proxy = SystemdUnitProxy::builder(&conn)
+            .path(path.clone())
+            .map_err(|e| AppError::Systemd(e.to_string()))?
+            .build()
+            .await
+            .map_err(|e| AppError::Systemd(e.to_string()))?;
+
+        let description = unit_proxy
+            .description()
+            .await
+            .unwrap_or_else(|_| String::new());
+        let load_state = unit_proxy
+            .load_state()
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let active_state = unit_proxy
+            .active_state()
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let sub_state = unit_proxy
+            .sub_state()
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let fragment_path = unit_proxy
+            .fragment_path()
+            .await
+            .ok()
+            .map(|p| sanitize_path_display(Path::new(&p)));
+        let unit_file_state = manager
+            .get_unit_file_state(unit)
+            .await
+            .map(|s| UnitFileState::parse(&s))
+            .unwrap_or(UnitFileState::Unknown);
+
+        let info = ServiceInfo {
+            unit: sanitize_cell(unit),
+            description: sanitize_text(&description),
+            load_state: sanitize_cell(&load_state),
+            active_state: sanitize_cell(&active_state),
+            sub_state: sanitize_cell(&sub_state),
+            unit_path: path.to_string(),
+            unit_file_state,
+            fragment_path,
+        };
+
+        if let Ok(mut cache) = self.details_cache.lock() {
+            cache.insert(unit.to_string(), info.clone());
+        }
+        Ok(info)
     }
 
     async fn is_available(&self) -> bool {
@@ -249,7 +366,7 @@ impl ServiceProvider for LinuxServiceProvider {
     }
 }
 
-/// Validate that a unit was previously listed (admin path uses this).
+/// Lexical unit-name safety check (not an allowlist by itself).
 pub fn unit_looks_safe(unit: &str) -> bool {
     !unit.is_empty()
         && unit.ends_with(".service")
@@ -259,4 +376,25 @@ pub fn unit_looks_safe(unit: &str) -> bool {
         && unit
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '@' | ':'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basename_from_path() {
+        assert_eq!(
+            unit_file_basename("/usr/lib/systemd/system/ssh.service"),
+            "ssh.service"
+        );
+        assert_eq!(unit_file_basename("nginx.service"), "nginx.service");
+    }
+
+    #[test]
+    fn unit_safe() {
+        assert!(unit_looks_safe("ssh.service"));
+        assert!(!unit_looks_safe("../evil.service"));
+        assert!(!unit_looks_safe("a b.service"));
+    }
 }

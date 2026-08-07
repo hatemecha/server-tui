@@ -30,3 +30,6 @@ No modules from these projects were vendored.
 | thiserror / anyhow | Errors |
 
 Consult each crate’s license on crates.io / docs.rs before redistribution bundles.
+
+Repository: https://github.com/hatemecha/server-tui
+

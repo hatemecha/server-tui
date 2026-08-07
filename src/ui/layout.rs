@@ -68,7 +68,8 @@ fn draw_header(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme
     };
     let uptime = format_uptime(state.metrics.uptime_seconds);
     let title = format!(
-        " {APP_NAME}   host: {host}   uptime: {uptime}   mode: {} ",
+        " {APP_NAME}   host: {host}   uptime: {uptime}   health: {}   mode: {} ",
+        state.health_status.label(),
         state.mode_label()
     );
     let block = Block::default()

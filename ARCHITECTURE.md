@@ -1,48 +1,60 @@
 # Architecture
 
-See also [AGENTS.md](AGENTS.md).
+See also [AGENTS.md](AGENTS.md) and [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 
 ## Event flow
 
 1. Crossterm `EventStream` + provider pollers enqueue `AppEvent` on an `mpsc` channel.
 2. `apply_event` / `apply_action` mutate `AppState` and return `SideEffect`s.
-3. `main` spawns tasks for side effects (refresh, scan, follow, admin ops).
-4. UI redraws on each loop iteration after event handling (interval tick prevents stalls).
+3. `main` spawns tracked tasks for side effects (refresh, scan, follow, admin ops, diagnostics).
+4. UI redraws on each loop iteration after event handling.
 
 ## State
 
-`AppState` owns screen, focus, filters, selection keys (PID / unit name), metric history (`CircularBuffer`), log buffer, storage tree breadcrumbs, dialogs, and mode flags (`demo`, `read_only`).
+`AppState` owns screen, focus, **per-screen** `SearchQueries`, selection keys (PID / unit name / finding), metric history, log buffer, storage tree, dialogs (confirm with `ConfirmChoice`, help, glossary, report), health status, findings, and XDG persist state.
 
-Selection is preserved across refreshes when the selected PID/unit still exists.
+Selection is preserved across refreshes when the selected PID/unit still exists. Process navigation always uses `visible_processes` (filter then sort once).
 
 ## Providers
 
 | Trait | Linux | Demo |
 |-------|-------|------|
-| `MetricsProvider` | sysinfo + `/etc/os-release` + thermal zones | Synthetic oscillating metrics |
+| `MetricsProvider` | sysinfo with independent subsystem TTL caches | Synthetic oscillating metrics |
 | `ProcessProvider` | sysinfo processes | Fixed sample set |
-| `ServiceProvider` | zbus `org.freedesktop.systemd1` | Fake units including failed |
+| `ServiceProvider` | zbus ListUnits + ListUnitFiles; `details()` on demand | Fake units + UnitFileState |
 | `LogProvider` | `journalctl --output=json` | Synthetic lines |
 | `StorageProvider` | jwalk + tree aggregate | Fake tree with progress |
-| `AdministrativeExecutor` | nix signals + systemd D-Bus | Simulated success/errors |
+| `DiagnosticProbeProvider` | journalctl/coredumpctl/timedatectl + FS probes | Datasets A–H |
+| `AdministrativeExecutor` | nix signals + systemd D-Bus + unit registry | Simulated success/errors |
+
+Demo mode uses **only** `DemoProviders` — never mixed with Linux providers.
+
+## Diagnostics pipeline
+
+```
+DiagnosticProbeProvider.probe() → DiagnosticSnapshot
+        ↓
+DiagnosticEvaluator (pure: no FS/D-Bus/Command/Tokio)
+        ↓
+Vec<Finding> + HealthStatus
+```
+
+Snapshot may also be assembled from in-memory app lists for failed services when probes run.
 
 ## Async tasks
 
-- Metrics / processes / services: periodic intervals from config.
+- Metrics / processes / services: periodic intervals from config (metrics respect disk/temp/memory TTLs).
 - Storage: `spawn_blocking` walker + cancel token + progress channel.
 - Journal follow: child `journalctl --follow` with `kill_on_drop` and explicit kill on cancel.
-- Admin ops: one-shot tasks reporting `OperationFinished`.
+- Diagnostics / admin: one-shot tracked tasks.
+- Shutdown: cancel tokens → `TaskTracker::wait` (2s) → best-effort abort via runtime drop; terminal restore via `TerminalGuard`.
 
 ## Rendering
 
-Ratatui frames composed by `ui::draw` → shell (header/nav/footer) → screen panel → optional dialog overlay.
+Ratatui frames: shell (header with health / nav / responsive footer) → screen panel → optional dialog/glossary overlay.
 
-Narrow terminals (<100 cols) switch side nav to horizontal tabs. Tiny terminals show a non-panicking warning.
-
-## Cancellation
-
-Application `CancellationToken` cancels pollers on quit. Separate tokens cancel active storage scan and journal follow so children are not orphaned.
+Narrow terminals (<100 cols) use horizontal tabs. Footer hints compact below ~80 cols. Tiny terminals show a non-panicking warning.
 
 ## Permissions
 
-Permission failures become `AppError::Permission` with a clear user message. Observation continues. No password prompts, no setuid helper in MVP.
+Permission failures become `AppError::Permission` with systemd/D-Bus policy wording (Polkit mentioned only with evidence). Observation continues. No password prompts, no setuid helper.

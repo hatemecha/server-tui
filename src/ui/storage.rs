@@ -70,10 +70,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let children = state
-        .current_storage_node()
-        .map(|n| n.children.as_slice())
-        .unwrap_or(&[]);
+    let children = state.visible_storage_children();
     let header_row = Row::new(vec!["NAME", "TYPE", "SIZE"]).style(theme.accent());
     let rows = children.iter().enumerate().map(|(i, c)| {
         let size = if state.use_apparent {
@@ -112,7 +109,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!("Entries ({})", children.len()))
+            .title(format!(
+                "Entries ({}){}",
+                children.len(),
+                state.search_title_suffix()
+            ))
             .border_style(border),
     );
     frame.render_widget(table, chunks[1]);

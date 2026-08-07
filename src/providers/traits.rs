@@ -7,8 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::AppError;
 use crate::model::{
-    LogEntry, ProcessInfo, ProcessSignal, ServiceActionKind, ServiceInfo, StorageProgress,
-    StorageTree, SystemMetrics,
+    DiagnosticSnapshot, LogEntry, ProcessInfo, ProcessSignal, ServiceActionKind, ServiceInfo,
+    StorageProgress, StorageTree, SystemMetrics,
 };
 
 #[async_trait]
@@ -24,6 +24,8 @@ pub trait ProcessProvider: Send + Sync {
 #[async_trait]
 pub trait ServiceProvider: Send + Sync {
     async fn list_services(&self) -> Result<Vec<ServiceInfo>, AppError>;
+    /// On-demand unit details (e.g. fragment_path). List path stays cheap.
+    async fn details(&self, unit: &str) -> Result<ServiceInfo, AppError>;
     async fn is_available(&self) -> bool;
 }
 
@@ -43,6 +45,12 @@ pub trait StorageProvider: Send + Sync {
         cancel: CancellationToken,
         progress: tokio::sync::mpsc::Sender<StorageProgress>,
     ) -> Result<StorageTree, AppError>;
+}
+
+/// Collects diagnostic probe data. Must not receive `AppState`.
+#[async_trait]
+pub trait DiagnosticProbeProvider: Send + Sync {
+    async fn probe(&self) -> Result<DiagnosticSnapshot, AppError>;
 }
 
 #[async_trait]
@@ -65,4 +73,5 @@ pub struct ProviderBundle {
     pub logs: Box<dyn LogProvider>,
     pub storage: Box<dyn StorageProvider>,
     pub admin: Box<dyn AdministrativeExecutor>,
+    pub diagnostics: Box<dyn DiagnosticProbeProvider>,
 }

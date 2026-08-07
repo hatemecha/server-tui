@@ -64,6 +64,7 @@ fn selection_moves_in_process_list() {
             start_time: 2,
         },
     ];
+    s.process_sort = server_tui::model::ProcessSort::Pid;
     let _ = apply_action(&mut s, AppAction::MoveDown);
     assert_eq!(s.process_selected, 1);
     assert_eq!(s.process_selected_pid, Some(2));

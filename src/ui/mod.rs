@@ -1,5 +1,6 @@
 pub mod components;
 pub mod dashboard;
+pub mod diagnostics;
 pub mod dialogs;
 pub mod help;
 pub mod layout;
@@ -26,6 +27,7 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
         Screen::Services => services::draw(frame, area, state),
         Screen::Logs => logs::draw(frame, area, state),
         Screen::Storage => storage::draw(frame, area, state),
+        Screen::Diagnostics => diagnostics::draw(frame, area, state),
     });
     if state.dialog.is_some() {
         dialogs::draw(frame, state);

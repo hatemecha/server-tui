@@ -1,58 +1,48 @@
 # Testing
 
-See [AGENTS.md](AGENTS.md) for AI constraints.
-
-## Automated
+## Required validation (before claiming done)
 
 ```bash
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
+cargo build --release
 ```
 
-Coverage includes: filtering/sorting, selection preservation, storage aggregation, sanitization, config parse/clamp, demo/read-only mode, confirmations, circular buffers, journal JSON parsing (unit), navigation actions.
-
-Guarantees:
-
-- No real process kills
-- No real systemd mutations
-- No scan of `/`
-- No root required
-
-## Demo mode
+## Manual smoke
 
 ```bash
 cargo run -- --demo
-```
-
-Use for UI screenshots and navigation without touching the host.
-
-## Read-only mode
-
-```bash
 cargo run -- --read-only
+cargo run -- --demo --no-color
+cargo run -- --demo --ascii
+cargo run -- doctor --demo
+cargo run -- doctor --demo --report
+cargo run -- doctor --demo --json
+cargo run -- --scan-path "$HOME"
 ```
 
-Verify signals/services show permission denial / status messaging and never mutate.
+## What tests cover
 
-## Optional demo systemd unit
+- Process filter/sort/`visible_processes` + selection after sort change
+- Service filters + `UnitFileState` parsing
+- Sanitization including `sanitize_path_display`
+- Confirm dialog defaults to Cancel; read-only blocks signals
+- Demo providers never require root
+- Diagnostic evaluator fixtures (OOM, temp wording, no false panic, health Unknown without required probes)
+- Report redaction (JSON without sensitive details by default)
+- XDG state.toml atomic roundtrip
+- Footer hint compaction
+- TestBackend render smoke (80×24 dashboard/diagnostics; tiny terminal)
 
-```bash
-./scripts/create-demo-service.sh install
-# exercise start/stop/restart manually in the TUI
-./scripts/create-demo-service.sh uninstall
-```
+## What tests must never do
 
-## Manual checklist
+- Kill real host processes
+- Restart real systemd units
+- Scan `/`
+- Require root
+- Mix Demo and Linux providers in one bundle
 
-1. Screen navigation 1–5
-2. Resize / 80×24
-3. Search `/`
-4. Storage cancel `Esc`
-5. Quit `q` and `Ctrl+C` restore terminal
-6. Permission error path (non-root restart of protected unit)
-7. `--no-color` / `--ascii`
-8. Invalid config file shows path+field error
-9. Over SSH/tmux when available
+## Diagnostic fixtures
 
-## Fedora / Ubuntu
-
-Prefer validating release builds on the target distro. Document which toolchain produced a given binary in deployment notes.
+Pure evaluator tests live in `src/diagnostics/evaluator.rs` with synthetic `DiagnosticSnapshot` values (no I/O). Demo datasets A–H exercise probe→evaluate in `--demo` / `doctor --demo`.

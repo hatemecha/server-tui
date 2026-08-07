@@ -4,9 +4,10 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | yes (best effort) |
+| 0.2.x   | yes (best effort) |
+| 0.1.x   | best effort (superseded) |
 
-This is early MVP software. Security fixes are applied on a best-effort basis by the maintainer.
+This is early software. Security fixes are applied on a best-effort basis by the maintainer.
 
 ## Threat model
 
@@ -16,46 +17,44 @@ This is early MVP software. Security fixes are applied on a best-effort basis by
 2. **Accidental privilege impact** (wrong signal / wrong unit) when run as root or with admin rights.
 3. **Command injection** if external tools were invoked via shell (forbidden by design).
 4. **Data exfiltration** if telemetry or network listeners existed (they do not).
+5. **Sensitive evidence** in diagnostic reports (`--include-sensitive` is opt-in).
 
 ## Safe practice
 
 - Prefer `--read-only` or `--demo` on unfamiliar hosts.
 - Prefer an unprivileged account for observation.
-- Confirm dialogs carefully for signals and systemd actions.
+- Confirm dialogs carefully (default focus is **Cancel**).
 - Do not install this interactive TUI as a long-running systemd service.
+- Treat doctor JSON/text as sensitive if `--include-sensitive` is used.
 
 ## Untrusted data
 
-Treat as untrusted: journal messages, process command lines, unit descriptions, file names, D-Bus error strings.
+Treat as untrusted: journal messages, process command lines, unit descriptions, file names, D-Bus error strings, probe output.
 
-Pipeline: strip ANSI → replace control characters → truncate for display where needed.
+Pipeline: strip ANSI → replace control characters → `sanitize_path_display` for paths → truncate for display where needed.
 
 ## Command execution
 
-Allowed external program in MVP: `journalctl` only, fixed argv list, unit names validated.
+Allowed external programs (fixed argv, no shell): `journalctl`, `coredumpctl`, `timedatectl` (optional/best-effort). Signals via `nix` `kill`. Systemd via zbus.
 
-Signals via `nix` `kill` (never `/bin/kill` through a shell).
+Unit actions require: lexical `unit_looks_safe` **and** membership in the shared known-unit registry from the last list.
 
-Systemd actions via zbus; unit names must look like safe `.service` identifiers.
+Never signal PID 0, 1, or self. SIGKILL success means the signal was **delivered**, not that `/proc` vanished.
 
 ## Privileges
 
-- Observation works without admin rights.
-- Actions fail closed with permission errors.
+- Observation works without admin rights; probes degrade independently.
+- Actions fail closed with permission errors (systemd/D-Bus policy wording).
 - `--read-only` disables the administrative executor entirely.
 - Running as root amplifies impact; use least privilege.
 
 ## Non-goals / hard bans
 
-No telemetry, listeners, password storage, setuid helpers, file deletion, automatic system configuration edits, auto updates, or remote agents.
+No telemetry, listeners, password storage, setuid helpers, file deletion, automatic system configuration edits, auto updates, remote agents, or auto privilege escalation.
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue with exploit details against production systems.
-
-Preferred path once the repository is on GitHub:
-
-1. Use **GitHub Security Advisories** for the project, or
-2. Contact the maintainer privately via their GitHub profile: [hatemecha](https://github.com/hatemecha).
+1. Use **GitHub Security Advisories** for https://github.com/hatemecha/server-tui, or
+2. Contact the maintainer privately: [hatemecha](https://github.com/hatemecha).
 
 Include version (`server-tui --version`), OS, and a minimal reproduction when possible.

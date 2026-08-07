@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     } else {
         state.service_filter
     };
-    let filtered = filter_services(&state.services, &state.search_query, filter);
+    let filtered = filter_services(&state.services, state.current_search(), filter);
 
     let header = Row::new(vec![
         "UNIT",
@@ -31,11 +31,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     .style(theme.accent());
 
     let rows = filtered.iter().enumerate().map(|(i, s)| {
-        let en = match s.enabled {
-            Some(true) => "yes",
-            Some(false) => "no",
-            None => "?",
-        };
+        let en = s.unit_file_state.short_label();
         let mut row = Row::new(vec![
             s.unit.clone(),
             s.load_state.clone(),
@@ -74,9 +70,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                "Services ({}) filter:{}{readonly}",
+                "Services ({}) filter:{}{}{}",
                 filtered.len(),
-                filter.label()
+                filter.label(),
+                state.search_title_suffix(),
+                readonly
             ))
             .border_style(border),
     );
@@ -84,14 +82,21 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     let detail = if let Some(s) = filtered.get(state.service_selected) {
         format!(
-            "unit: {}\nactive: {} ({})  load: {}  enabled: {:?}\nfragment: {}\n{}",
+            "unit: {}\nactive: {} ({})  load: {}  unit-file: {}\nfragment: {}\n{}{}",
             s.unit,
             s.active_state,
             s.sub_state,
             s.load_state,
-            s.enabled,
-            s.fragment_path.as_deref().unwrap_or("no disponible"),
-            s.description
+            s.unit_file_state.label(),
+            s.fragment_path
+                .as_deref()
+                .unwrap_or("(press refresh / wait for details)"),
+            s.description,
+            if state.read_only {
+                ""
+            } else {
+                "\nTip: confirmations default to Cancel — use arrows then Enter."
+            }
         )
     } else if !state.metrics.systemd_available && !state.demo {
         "systemd: no disponible".into()

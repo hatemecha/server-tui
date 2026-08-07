@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     let filtered = state
         .logs
-        .filtered(&state.search_query, state.log_min_priority);
+        .filtered(state.current_search(), state.log_min_priority);
     let items: Vec<ListItem> = filtered
         .iter()
         .enumerate()
@@ -83,7 +83,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!("Entries ({})", filtered.len()))
+            .title(format!(
+                "Entries ({}){}",
+                filtered.len(),
+                state.search_title_suffix()
+            ))
             .border_style(border),
     );
     frame.render_widget(list, chunks[1]);

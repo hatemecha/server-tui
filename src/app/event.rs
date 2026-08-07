@@ -4,7 +4,8 @@ use crossterm::event::KeyEvent;
 
 use crate::error::AppError;
 use crate::model::{
-    LogEntry, ProcessInfo, ServiceInfo, StorageProgress, StorageTree, SystemMetrics,
+    Finding, HealthStatus, LogEntry, ProcessInfo, ServiceInfo, StorageProgress, StorageTree,
+    SystemMetrics,
 };
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,13 @@ pub enum AppEvent {
     LogsUpdated(Vec<LogEntry>),
     StorageProgress(StorageProgress),
     StorageFinished(Result<StorageTree, AppError>),
+    DiagnosticsUpdated {
+        findings: Vec<Finding>,
+        health: HealthStatus,
+        report: String,
+        probes_degraded: Vec<String>,
+    },
+    ServiceDetails(ServiceInfo),
     OperationFinished(OperationResult),
     Error(AppError),
     Quit,

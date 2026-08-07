@@ -2,8 +2,9 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
+use crate::doctor::DoctorArgs;
 use crate::{APP_NAME, APP_VERSION};
 
 #[derive(Debug, Clone, Parser)]
@@ -45,6 +46,15 @@ pub struct Cli {
     /// Override global refresh interval in milliseconds (minimum 200).
     #[arg(long, value_name = "MS")]
     pub refresh_ms: Option<u64>,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Commands {
+    /// Run one-shot host diagnostics and exit.
+    Doctor(DoctorArgs),
 }
 
 impl Cli {

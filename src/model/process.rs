@@ -79,9 +79,24 @@ pub fn filter_processes<'a>(items: &'a [ProcessInfo], query: &str) -> Vec<&'a Pr
             p.name.to_lowercase().contains(&q)
                 || p.cmd.to_lowercase().contains(&q)
                 || p.user.to_lowercase().contains(&q)
+                || p.state.to_lowercase().contains(&q)
                 || p.pid.to_string().contains(&q)
         })
         .collect()
+}
+
+/// Canonical visible process list: filter then sort exactly once.
+///
+/// All UI selection, navigation, and admin confirmations must use this helper
+/// so indices stay consistent across refresh and sort changes.
+pub fn visible_processes<'a>(
+    items: &'a [ProcessInfo],
+    query: &str,
+    sort: ProcessSort,
+) -> Vec<&'a ProcessInfo> {
+    let mut filtered = filter_processes(items, query);
+    sort_processes(&mut filtered, sort);
+    filtered
 }
 
 pub fn sort_processes(items: &mut [&ProcessInfo], sort: ProcessSort) {
@@ -180,5 +195,25 @@ mod tests {
         assert!(is_protected_pid(1, 100));
         assert!(is_protected_pid(100, 100));
         assert!(!is_protected_pid(42, 100));
+    }
+
+    #[test]
+    fn visible_processes_filters_then_sorts() {
+        let items = sample();
+        let visible = visible_processes(&items, "", ProcessSort::Cpu);
+        assert_eq!(visible[0].pid, 20);
+        let filtered = visible_processes(&items, "alpha", ProcessSort::Cpu);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].pid, 10);
+    }
+
+    #[test]
+    fn visible_selection_stable_after_sort_change() {
+        let items = sample();
+        let by_cpu = visible_processes(&items, "", ProcessSort::Cpu);
+        let pid = by_cpu[0].pid;
+        let by_pid = visible_processes(&items, "", ProcessSort::Pid);
+        let idx = preserve_selection(&by_pid, Some(pid));
+        assert_eq!(by_pid[idx].pid, pid);
     }
 }

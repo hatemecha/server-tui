@@ -3,7 +3,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 
 use crate::app::action::FocusPane;
 use crate::app::state::AppState;
-use crate::model::{filter_processes, format_bytes, format_uptime, sort_processes};
+use crate::model::{format_bytes, format_uptime};
 use crate::ui::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -13,8 +13,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Min(5), Constraint::Length(6)])
         .split(area);
 
-    let mut filtered = filter_processes(&state.processes, &state.search_query);
-    sort_processes(&mut filtered, state.process_sort);
+    let filtered = state.visible_processes();
 
     let header =
         Row::new(vec!["PID", "USER", "CPU%", "MEM%", "STATE", "COMMAND"]).style(theme.accent());
@@ -60,9 +59,10 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                "Processes ({}) sort:{}",
+                "Processes ({}) sort:{}{}",
                 filtered.len(),
-                state.process_sort.label()
+                state.process_sort.label(),
+                state.search_title_suffix()
             ))
             .border_style(border),
     );

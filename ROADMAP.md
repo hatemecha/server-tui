@@ -1,23 +1,22 @@
 # Roadmap
 
-## MVP (this release)
+## Done in 0.2
 
-- Dashboard, processes, services, logs, storage
-- Demo + read-only modes (recommended for first runs)
-- Config/CLI, docs, CI, install scripts
-- Tests + release binary
-- Public MIT source tree
+- Hardening (visible processes, UnitFileState, ListUnitFiles, unit registry, confirm UX, SIGKILL semantics, metrics caching, task shutdown, sanitize paths, per-screen search, SubsystemHealth)
+- Diagnostics screen + pure evaluator + probes + doctor CLI
+- Glossary overlay
+- XDG state.toml acknowledgements
 
-## After MVP
+## Next
 
 - Richer systemd unit details / dependencies graph
 - Native journald API (sd-journal) without journalctl child
 - Configurable process signal set (INT/HUP)
 - Export metrics snapshot to file
-- Session layout persistence
+- Session layout persistence beyond acknowledgements
 - musl CI artifacts (after validation)
 
-## Future ideas
+## Future ideas (MVP out of scope — do not implement yet)
 
 - Netplan read-only view
 - Firewall status view (UFW/nftables read-only)

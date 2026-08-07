@@ -1,32 +1,26 @@
 //! Process signal execution with hard safety guards.
 
-use std::path::Path;
-
 use async_trait::async_trait;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
 use sysinfo::{Pid as SysPid, ProcessesToUpdate, System};
 
 use crate::error::AppError;
-use crate::model::{is_protected_pid, ProcessSignal, ServiceActionKind};
+use crate::model::{is_protected_pid, ProcessSignal, ServiceActionKind, UnitRegistry};
 use crate::providers::linux::systemd::{self, unit_looks_safe};
 use crate::providers::AdministrativeExecutor;
 
 pub struct LinuxAdminExecutor {
     self_pid: u32,
+    registry: UnitRegistry,
 }
 
 impl LinuxAdminExecutor {
-    pub fn new() -> Self {
+    pub fn new(registry: UnitRegistry) -> Self {
         Self {
             self_pid: std::process::id(),
+            registry,
         }
-    }
-}
-
-impl Default for LinuxAdminExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -59,6 +53,8 @@ impl AdministrativeExecutor for LinuxAdminExecutor {
             }
 
             let nix_pid = Pid::from_raw(pid as i32);
+            // Success = kernel accepted the signal (delivered to the task).
+            // Presence of /proc after SIGKILL is not a failure (exit can race).
             kill(nix_pid, signal.as_nix()).map_err(|e| match e {
                 nix::errno::Errno::ESRCH => {
                     AppError::Process(format!("process {pid} no longer exists"))
@@ -76,27 +72,14 @@ impl AdministrativeExecutor for LinuxAdminExecutor {
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        match result {
-            Ok(()) => {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                let still = Path::new(&format!("/proc/{pid}")).exists();
-                if signal == ProcessSignal::Kill && still {
-                    Err(AppError::Process(format!(
-                        "SIGKILL sent to {pid} but process still present"
-                    )))
-                } else {
-                    Ok(())
-                }
-            }
-            Err(e) => Err(e),
-        }
+        result
     }
 
     async fn service_action(&self, unit: &str, action: ServiceActionKind) -> Result<(), AppError> {
         if !unit_looks_safe(unit) {
             return Err(AppError::Systemd("refusing unsafe unit name".into()));
         }
-        systemd::LinuxServiceProvider::perform_action(unit, action).await
+        systemd::LinuxServiceProvider::perform_action(unit, action, Some(&self.registry)).await
     }
 
     fn read_only(&self) -> bool {

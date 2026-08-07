@@ -11,6 +11,7 @@ pub enum Screen {
     Services,
     Logs,
     Storage,
+    Diagnostics,
 }
 
 impl Screen {
@@ -21,6 +22,7 @@ impl Screen {
             '3' => Some(Self::Services),
             '4' => Some(Self::Logs),
             '5' => Some(Self::Storage),
+            '6' => Some(Self::Diagnostics),
             _ => None,
         }
     }
@@ -32,6 +34,7 @@ impl Screen {
             Self::Services => "Services",
             Self::Logs => "Logs",
             Self::Storage => "Storage",
+            Self::Diagnostics => "Diagnostics",
         }
     }
 
@@ -42,7 +45,13 @@ impl Screen {
             Self::Services,
             Self::Logs,
             Self::Storage,
+            Self::Diagnostics,
         ]
+    }
+
+    /// Screens with a filterable list (Dashboard is overview-only).
+    pub fn supports_search(self) -> bool {
+        !matches!(self, Self::Dashboard)
     }
 }
 
@@ -51,6 +60,23 @@ pub enum FocusPane {
     Nav,
     Content,
     Details,
+}
+
+/// Focused button in a Yes/Cancel confirmation dialog. Default is Cancel (safer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConfirmChoice {
+    Yes,
+    #[default]
+    Cancel,
+}
+
+impl ConfirmChoice {
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Yes => Self::Cancel,
+            Self::Cancel => Self::Yes,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +120,13 @@ pub enum AppAction {
     CancelStorageScan,
     Confirm,
     Cancel,
+    ConfirmFocusLeft,
+    ConfirmFocusRight,
     ToggleHelp,
+    ToggleGlossary,
+    OpenDiagnosticReport,
+    AcknowledgeFinding,
+    FollowDiagnosticTarget,
     Quit,
     // Internal typed admin intents after confirmation.
     ExecuteSignal {

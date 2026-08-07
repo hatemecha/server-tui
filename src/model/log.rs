@@ -117,7 +117,11 @@ impl LogBuffer {
                 if q.is_empty() {
                     true
                 } else {
-                    e.message.to_lowercase().contains(&q) || e.unit.to_lowercase().contains(&q)
+                    e.message.to_lowercase().contains(&q)
+                        || e.unit.to_lowercase().contains(&q)
+                        || e.priority.label().contains(q.as_str())
+                        || e.timestamp.to_lowercase().contains(&q)
+                        || e.pid.map(|p| p.to_string().contains(&q)).unwrap_or(false)
                 }
             })
             .collect()

@@ -9,13 +9,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::AppError;
 use crate::model::{
-    aggregate_sizes, default_exclusions, DiskUsage, LogEntry, LogPriority, ProcessInfo,
-    ProcessSignal, ServiceActionKind, ServiceInfo, StorageNode, StorageProgress, StorageTree,
-    SystemMetrics, TemperatureReading,
+    aggregate_sizes, default_exclusions, DiagnosticSnapshot, DiskUsage, LogEntry, LogPriority,
+    ProcessInfo, ProcessSignal, ServiceActionKind, ServiceInfo, StorageNode, StorageProgress,
+    StorageTree, SystemMetrics, TemperatureReading, UnitFileState, UnitRegistry,
 };
+use crate::providers::linux::diagnostics::demo_datasets::DemoDataset;
 use crate::providers::traits::{
-    AdministrativeExecutor, LogProvider, MetricsProvider, ProcessProvider, ProviderBundle,
-    ServiceProvider, StorageProvider,
+    AdministrativeExecutor, DiagnosticProbeProvider, LogProvider, MetricsProvider, ProcessProvider,
+    ProviderBundle, ServiceProvider, StorageProvider,
 };
 
 static TICK: AtomicU64 = AtomicU64::new(0);
@@ -28,13 +29,27 @@ pub struct DemoProviders;
 
 impl DemoProviders {
     pub fn bundle(read_only: bool) -> ProviderBundle {
+        let registry = UnitRegistry::new();
+        // Pre-register demo units so admin path can accept them.
+        registry.replace_all([
+            "ssh.service".into(),
+            "nginx.service".into(),
+            "broken-demo.service".into(),
+            "cron.service".into(),
+        ]);
         ProviderBundle {
             metrics: Box::new(DemoMetrics),
             processes: Box::new(DemoProcesses),
-            services: Box::new(DemoServices),
+            services: Box::new(DemoServices {
+                registry: registry.clone(),
+            }),
             logs: Box::new(DemoLogs),
             storage: Box::new(DemoStorage),
-            admin: Box::new(DemoAdmin { read_only }),
+            admin: Box::new(DemoAdmin {
+                read_only,
+                registry,
+            }),
+            diagnostics: Box::new(DemoDiagnostics),
         }
     }
 }
@@ -141,53 +156,73 @@ impl ProcessProvider for DemoProcesses {
     }
 }
 
-struct DemoServices;
+struct DemoServices {
+    registry: UnitRegistry,
+}
+
+fn demo_service_list() -> Vec<ServiceInfo> {
+    vec![
+        ServiceInfo {
+            unit: "ssh.service".into(),
+            description: "OpenSSH server daemon".into(),
+            load_state: "loaded".into(),
+            active_state: "active".into(),
+            sub_state: "running".into(),
+            unit_path: "/org/freedesktop/systemd1/unit/ssh_2eservice".into(),
+            unit_file_state: UnitFileState::Enabled,
+            fragment_path: None,
+        },
+        ServiceInfo {
+            unit: "nginx.service".into(),
+            description: "A high performance web server".into(),
+            load_state: "loaded".into(),
+            active_state: "active".into(),
+            sub_state: "running".into(),
+            unit_path: "/org/freedesktop/systemd1/unit/nginx_2eservice".into(),
+            unit_file_state: UnitFileState::Enabled,
+            fragment_path: None,
+        },
+        ServiceInfo {
+            unit: "broken-demo.service".into(),
+            description: "Intentionally failed demo unit".into(),
+            load_state: "loaded".into(),
+            active_state: "failed".into(),
+            sub_state: "failed".into(),
+            unit_path: "/org/freedesktop/systemd1/unit/broken_2ddemo_2eservice".into(),
+            unit_file_state: UnitFileState::Disabled,
+            fragment_path: None,
+        },
+        ServiceInfo {
+            unit: "cron.service".into(),
+            description: "Regular background program processing daemon".into(),
+            load_state: "loaded".into(),
+            active_state: "inactive".into(),
+            sub_state: "dead".into(),
+            unit_path: "/org/freedesktop/systemd1/unit/cron_2eservice".into(),
+            unit_file_state: UnitFileState::Static,
+            fragment_path: None,
+        },
+    ]
+}
 
 #[async_trait]
 impl ServiceProvider for DemoServices {
     async fn list_services(&self) -> Result<Vec<ServiceInfo>, AppError> {
-        Ok(vec![
-            ServiceInfo {
-                unit: "ssh.service".into(),
-                description: "OpenSSH server daemon".into(),
-                load_state: "loaded".into(),
-                active_state: "active".into(),
-                sub_state: "running".into(),
-                unit_path: "/org/freedesktop/systemd1/unit/ssh_2eservice".into(),
-                enabled: Some(true),
-                fragment_path: Some("/lib/systemd/system/ssh.service".into()),
-            },
-            ServiceInfo {
-                unit: "nginx.service".into(),
-                description: "A high performance web server".into(),
-                load_state: "loaded".into(),
-                active_state: "active".into(),
-                sub_state: "running".into(),
-                unit_path: "/org/freedesktop/systemd1/unit/nginx_2eservice".into(),
-                enabled: Some(true),
-                fragment_path: Some("/lib/systemd/system/nginx.service".into()),
-            },
-            ServiceInfo {
-                unit: "broken-demo.service".into(),
-                description: "Intentionally failed demo unit".into(),
-                load_state: "loaded".into(),
-                active_state: "failed".into(),
-                sub_state: "failed".into(),
-                unit_path: "/org/freedesktop/systemd1/unit/broken_2ddemo_2eservice".into(),
-                enabled: Some(false),
-                fragment_path: Some("/etc/systemd/system/broken-demo.service".into()),
-            },
-            ServiceInfo {
-                unit: "cron.service".into(),
-                description: "Regular background program processing daemon".into(),
-                load_state: "loaded".into(),
-                active_state: "inactive".into(),
-                sub_state: "dead".into(),
-                unit_path: "/org/freedesktop/systemd1/unit/cron_2eservice".into(),
-                enabled: Some(true),
-                fragment_path: Some("/lib/systemd/system/cron.service".into()),
-            },
-        ])
+        let list = demo_service_list();
+        self.registry
+            .replace_all(list.iter().map(|s| s.unit.clone()));
+        Ok(list)
+    }
+
+    async fn details(&self, unit: &str) -> Result<ServiceInfo, AppError> {
+        let mut list = demo_service_list();
+        let Some(mut info) = list.iter().find(|s| s.unit == unit).cloned() else {
+            return Err(AppError::Systemd(format!("unknown unit {unit}")));
+        };
+        info.fragment_path = Some(format!("/lib/systemd/system/{unit}"));
+        // silence unused mut warning if we only assign fragment
+        let _ = &mut list;
+        Ok(info)
     }
 
     async fn is_available(&self) -> bool {
@@ -312,6 +347,7 @@ fn file_node(parent: &Path, name: &str, is_dir: bool, size: u64) -> StorageNode 
 
 struct DemoAdmin {
     read_only: bool,
+    registry: UnitRegistry,
 }
 
 #[async_trait]
@@ -330,7 +366,6 @@ impl AdministrativeExecutor for DemoAdmin {
         if pid == 0 || pid == 1 {
             return Err(AppError::Process("protected PID".into()));
         }
-        // Simulate occasional permission failure for PID 1001.
         if pid == 1001 {
             return Err(AppError::Permission(format!(
                 "demo denied {} for PID {pid}",
@@ -346,6 +381,11 @@ impl AdministrativeExecutor for DemoAdmin {
                 "read-only mode: systemd actions disabled".into(),
             ));
         }
+        if !self.registry.contains(unit) {
+            return Err(AppError::Systemd(format!(
+                "refusing action on unregistered unit {unit}"
+            )));
+        }
         if unit == "broken-demo.service" && action == ServiceActionKind::Start {
             return Err(AppError::Systemd(
                 "demo: start rejected for broken-demo.service".into(),
@@ -356,5 +396,16 @@ impl AdministrativeExecutor for DemoAdmin {
 
     fn read_only(&self) -> bool {
         self.read_only
+    }
+}
+
+struct DemoDiagnostics;
+
+#[async_trait]
+impl DiagnosticProbeProvider for DemoDiagnostics {
+    async fn probe(&self) -> Result<DiagnosticSnapshot, AppError> {
+        // Cycle datasets slowly so demo UI shows variety.
+        let dataset = DemoDataset::from_tick(tick() / 3);
+        Ok(dataset.build())
     }
 }

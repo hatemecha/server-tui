@@ -1,6 +1,6 @@
 [package]
 name = "server-tui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.81"
 description = "Terminal UI for observing and administering a local Linux server"
@@ -9,9 +9,9 @@ readme = "README.md"
 keywords = ["tui", "linux", "systemd", "sysadmin", "monitoring"]
 categories = ["command-line-utilities"]
 authors = ["hatemecha"]
-# Set after creating the GitHub repository, e.g.:
-# repository = "https://github.com/hatemecha/server-tui"
-# homepage = "https://github.com/hatemecha/server-tui"
+repository = "https://github.com/hatemecha/server-tui"
+homepage = "https://github.com/hatemecha/server-tui"
+documentation = "https://github.com/hatemecha/server-tui#readme"
 
 [[bin]]
 name = "server-tui"

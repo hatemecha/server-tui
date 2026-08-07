@@ -1,5 +1,7 @@
 //! Sanitize untrusted text before rendering in the terminal.
 
+use std::path::Path;
+
 use strip_ansi_escapes::strip;
 use unicode_width::UnicodeWidthChar;
 
@@ -47,6 +49,11 @@ fn sanitize_controls(input: &str) -> String {
         }
     }
     out
+}
+
+/// Sanitize a filesystem path for terminal display (lossy UTF-8 + cell rules).
+pub fn sanitize_path_display(path: &Path) -> String {
+    sanitize_cell(&path.to_string_lossy())
 }
 
 /// Truncate to roughly `max_width` display columns.
@@ -102,5 +109,13 @@ mod tests {
         let t = truncate_width(&s, 50);
         assert!(!t.is_empty());
         assert!(t.chars().count() <= 50);
+    }
+
+    #[test]
+    fn sanitize_path_strips_controls() {
+        let p = Path::new("/tmp/\x1b[31mred\x1b[0m");
+        let s = sanitize_path_display(p);
+        assert!(!s.contains('\x1b'));
+        assert!(s.contains("red"));
     }
 }

@@ -1,24 +1,78 @@
 # Keybindings
 
-Global:
+## Global
 
 | Key | Action |
 |-----|--------|
-| 1–5 | Switch screen |
-| Tab / Shift+Tab | Cycle focus |
-| ↑↓ / kj | Move |
-| PgUp/PgDn | Page |
-| Home/End | First/last |
-| / | Search |
-| Esc | Cancel / clear search / close dialog |
-| r | Refresh (context-dependent) |
-| ? | Help |
-| q / Ctrl+C | Quit |
+| `1`–`6` | Screens (Dashboard … Diagnostics) |
+| `Tab` / `Shift+Tab` | Cycle focus (nav / content / details) |
+| `/` | Filter current list (Processes, Services, Logs, Storage, Diagnostics; also Glossary). Matches relevant row fields. Not advertised on Dashboard. |
+| `Esc` | Clear active filter / cancel dialog / cancel storage scan / leave search |
+| `r` | Refresh current screen (diagnostics re-probes) |
+| `g` | Glossary overlay |
+| `?` | Help (keybindings) |
+| `q` / `Ctrl+C` | Quit (terminal restored) |
 
-Processes: `t` SIGTERM, `K` SIGKILL, `s` sort, `c` full command.
+## Confirm dialogs
 
-Services: `s` start, `x` stop, `r` restart, `R` reload, `e` enable, `d` disable, `l` logs, `f` failed only.
+| Key | Action |
+|-----|--------|
+| `Left` / `Right` / `Tab` | Move Yes/Cancel focus (default **Cancel**) |
+| `Enter` | Activate **focused** button |
+| `y` | Confirm |
+| `n` / `Esc` | Cancel |
 
-Logs: `f` follow, `n`/`N` matches, `p` priority, `w` wrap.
+## Processes
 
-Storage: Enter open, Backspace parent, `s` sort, `a` apparent/disk, `x` stay-on-fs, Esc cancel scan.
+| Key | Action |
+|-----|--------|
+| `j`/`k` / arrows | Move |
+| `s` | Cycle sort |
+| `c` | Toggle full command |
+| `t` | SIGTERM (confirm) |
+| `K` | SIGKILL (confirm + warning) |
+
+## Services
+
+| Key | Action |
+|-----|--------|
+| `s`/`x`/`r`/`R`/`e`/`d` | start/stop/restart/reload/enable/disable |
+| `l` | Open logs for selected unit |
+| `f` | Toggle failed-only filter |
+
+Confirmations default to Cancel.
+
+## Logs
+
+| Key | Action |
+|-----|--------|
+| `f` | Toggle follow |
+| `n`/`N` | Next/prev search match |
+| `p` | Cycle min priority |
+| `w` | Toggle wrap |
+
+## Storage
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Enter directory |
+| `Backspace` | Parent |
+| `s` | Sort |
+| `a` | Apparent vs disk size |
+| `x` | Stay on filesystem |
+| `Esc` | Cancel running scan |
+
+## Diagnostics
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Follow deep link (screen + search) |
+| `o` | Open redacted report |
+| `a` | Acknowledge finding (persisted) |
+| `r` | Re-run probes |
+
+## CLI
+
+```bash
+server-tui doctor [--report] [--json] [--include-sensitive] [--demo]
+```

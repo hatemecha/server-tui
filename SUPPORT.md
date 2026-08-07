@@ -6,9 +6,10 @@ This is a personal project. Support is **best effort** and not a paid SLA.
 
 ## How to get help
 
-1. Read [README.md](README.md) (especially **Safe first run**).
-2. Check [TESTING.md](TESTING.md) and [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
-3. Open a GitHub issue with: OS/distro, `server-tui --version`, command line used, and what you expected vs observed.
+1. Read [README.md](README.md) (especially **Install** and **Safe first run**).
+2. If `server-tui` is “not found”, check that `~/.cargo/bin` or `~/.local/bin` is on `PATH` ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+3. Check [TESTING.md](TESTING.md) and [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
+4. Open a GitHub issue with: OS/distro, `server-tui --version`, command line used, and what you expected vs observed.
 
 ## What is in scope
 
