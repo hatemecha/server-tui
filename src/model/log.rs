@@ -2,6 +2,41 @@
 
 use std::collections::VecDeque;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogPreset {
+    #[default]
+    Important,
+    CurrentBoot,
+    LastHour,
+    Kernel,
+    SelectedService,
+    All,
+}
+
+impl LogPreset {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Important => Self::CurrentBoot,
+            Self::CurrentBoot => Self::LastHour,
+            Self::LastHour => Self::Kernel,
+            Self::Kernel => Self::SelectedService,
+            Self::SelectedService => Self::All,
+            Self::All => Self::Important,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Important => "important",
+            Self::CurrentBoot => "boot",
+            Self::LastHour => "1h",
+            Self::Kernel => "kernel",
+            Self::SelectedService => "service",
+            Self::All => "all",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogPriority {
     Emerg = 0,
@@ -109,10 +144,54 @@ impl LogBuffer {
     }
 
     pub fn filtered<'a>(&'a self, query: &str, min_priority: LogPriority) -> Vec<&'a LogEntry> {
+        self.filtered_preset(query, min_priority, LogPreset::All, None)
+    }
+
+    pub fn filtered_preset<'a>(
+        &'a self,
+        query: &str,
+        min_priority: LogPriority,
+        preset: LogPreset,
+        selected_unit: Option<&str>,
+    ) -> Vec<&'a LogEntry> {
         let q = query.to_lowercase();
+        let min = match preset {
+            LogPreset::Important => min_priority.min(LogPriority::Warning),
+            LogPreset::All | LogPreset::CurrentBoot | LogPreset::LastHour => min_priority,
+            LogPreset::Kernel => min_priority,
+            LogPreset::SelectedService => min_priority,
+        };
+        let now_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0);
+        let hour_ago = now_us.saturating_sub(3_600_000_000);
         self.entries
             .iter()
-            .filter(|e| e.priority <= min_priority)
+            .filter(|e| e.priority <= min)
+            .filter(|e| match preset {
+                LogPreset::Important => e.priority <= LogPriority::Warning,
+                LogPreset::Kernel => {
+                    e.unit.to_lowercase().contains("kernel")
+                        || e.message.to_lowercase().contains("kernel")
+                }
+                LogPreset::SelectedService => selected_unit
+                    .map(|u| e.unit.eq_ignore_ascii_case(u))
+                    .unwrap_or(true),
+                LogPreset::LastHour => match e.timestamp.parse::<u64>() {
+                    Ok(ts) => {
+                        // journal µs, or seconds → µs when clearly epoch-seconds.
+                        let us = if ts > 1_000_000_000_000 {
+                            ts
+                        } else {
+                            ts.saturating_mul(1_000_000)
+                        };
+                        us >= hour_ago
+                    }
+                    Err(_) => true,
+                },
+                LogPreset::CurrentBoot | LogPreset::All => true,
+            })
             .filter(|e| {
                 if q.is_empty() {
                     true
@@ -125,6 +204,21 @@ impl LogBuffer {
                 }
             })
             .collect()
+    }
+
+    pub fn context_around(
+        &self,
+        idx: usize,
+        before: usize,
+        after: usize,
+    ) -> Option<(Vec<LogEntry>, LogEntry, Vec<LogEntry>)> {
+        let entries: Vec<_> = self.entries.iter().cloned().collect();
+        let focus = entries.get(idx)?.clone();
+        let start = idx.saturating_sub(before);
+        let before_v = entries[start..idx].to_vec();
+        let end = (idx + 1 + after).min(entries.len());
+        let after_v = entries[idx + 1..end].to_vec();
+        Some((before_v, focus, after_v))
     }
 }
 

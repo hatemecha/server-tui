@@ -34,6 +34,16 @@ struct JournalJson {
 #[async_trait]
 impl LogProvider for LinuxLogProvider {
     async fn recent(&self, unit: Option<&str>, lines: usize) -> Result<Vec<LogEntry>, AppError> {
+        self.recent_preset(unit, lines, crate::model::LogPreset::All)
+            .await
+    }
+
+    async fn recent_preset(
+        &self,
+        unit: Option<&str>,
+        lines: usize,
+        preset: crate::model::LogPreset,
+    ) -> Result<Vec<LogEntry>, AppError> {
         if let Some(u) = unit {
             if !crate::providers::linux::systemd::unit_looks_safe(u) {
                 return Err(AppError::Journal("invalid unit for journal query".into()));
@@ -47,6 +57,23 @@ impl LogProvider for LinuxLogProvider {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        match preset {
+            crate::model::LogPreset::Important => {
+                cmd.arg("-p").arg("0..4");
+                cmd.arg("--boot=0");
+            }
+            crate::model::LogPreset::CurrentBoot => {
+                cmd.arg("--boot=0");
+            }
+            crate::model::LogPreset::LastHour => {
+                cmd.arg("--since=-1h");
+            }
+            crate::model::LogPreset::Kernel => {
+                cmd.arg("--dmesg");
+            }
+            crate::model::LogPreset::SelectedService | crate::model::LogPreset::All => {}
+        }
 
         if let Some(u) = unit {
             cmd.arg(format!("--unit={u}"));

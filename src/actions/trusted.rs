@@ -1,0 +1,151 @@
+//! Trusted absolute-path command resolution (sudo fallback helpers).
+//! Never accepts free-form shell. Only /usr/bin /bin /usr/sbin /sbin.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::error::AppError;
+
+const TRUSTED_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+/// Resolve a binary name to an absolute path under trusted directories only.
+pub fn resolve_trusted(binary: &str) -> Result<PathBuf, AppError> {
+    if binary.is_empty()
+        || binary.contains('/')
+        || binary.contains('\0')
+        || binary.chars().any(|c| c.is_whitespace())
+    {
+        return Err(AppError::Internal(format!(
+            "refusing untrusted binary name: {binary}"
+        )));
+    }
+    for dir in TRUSTED_DIRS {
+        let candidate = Path::new(dir).join(binary);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(AppError::Internal(format!(
+        "trusted binary not found: {binary}"
+    )))
+}
+
+/// Abstract command runner for tests (no real sudo).
+pub trait CommandRunner: Send + Sync {
+    fn run(&self, program: &Path, args: &[&str]) -> Result<std::process::Output, AppError>;
+}
+
+pub struct RealCommandRunner;
+
+impl CommandRunner for RealCommandRunner {
+    fn run(&self, program: &Path, args: &[&str]) -> Result<std::process::Output, AppError> {
+        Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| AppError::Internal(format!("spawn {}: {e}", program.display())))
+    }
+}
+
+/// Recorded fake runner for unit tests.
+#[derive(Default)]
+pub struct FakeCommandRunner {
+    pub calls: std::sync::Mutex<Vec<(PathBuf, Vec<String>)>>,
+    pub exit_code: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+impl CommandRunner for FakeCommandRunner {
+    fn run(&self, program: &Path, args: &[&str]) -> Result<std::process::Output, AppError> {
+        self.calls.lock().expect("lock").push((
+            program.to_path_buf(),
+            args.iter().map(|s| (*s).into()).collect(),
+        ));
+        Ok(std::process::Output {
+            status: exit_status(self.exit_code),
+            stdout: self.stdout.clone(),
+            stderr: self.stderr.clone(),
+        })
+    }
+}
+
+#[cfg(unix)]
+fn exit_status(code: i32) -> std::process::ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    // Linux wait status: exit code in high byte.
+    std::process::ExitStatus::from_raw(if code == 0 { 0 } else { code << 8 })
+}
+
+#[cfg(not(unix))]
+fn exit_status(_code: i32) -> std::process::ExitStatus {
+    Command::new("true").status().unwrap()
+}
+
+/// Build argv for `systemctl <action> <unit>` under sudo -n (non-interactive).
+pub fn sudo_systemctl_args(action: &str, unit: &str) -> Result<(PathBuf, Vec<String>), AppError> {
+    let sudo = resolve_trusted("sudo")?;
+    if !crate::providers::linux::systemd::unit_looks_safe(unit) {
+        return Err(AppError::Systemd("refusing unsafe unit name".into()));
+    }
+    let allowed = ["start", "stop", "restart", "reload", "enable", "disable"];
+    if !allowed.contains(&action) {
+        return Err(AppError::Systemd(format!("refusing action {action}")));
+    }
+    Ok((
+        sudo,
+        vec!["-n".into(), "systemctl".into(), action.into(), unit.into()],
+    ))
+}
+
+/// Execute typed systemctl via sudo -n using a CommandRunner (tests use Fake).
+pub fn run_sudo_systemctl(
+    runner: &dyn CommandRunner,
+    action: &str,
+    unit: &str,
+) -> Result<(), AppError> {
+    let (sudo, args) = sudo_systemctl_args(action, unit)?;
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = runner.run(&sudo, &arg_refs)?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(AppError::Permission(format!(
+            "sudo systemctl {action} {unit} failed: {err}"
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_path_injection() {
+        assert!(resolve_trusted("../evil").is_err());
+        assert!(resolve_trusted("sys ctl").is_err());
+    }
+
+    #[test]
+    fn fake_runner_records_call() {
+        let fake = FakeCommandRunner {
+            exit_code: 0,
+            ..Default::default()
+        };
+        // resolve may fail if sudo missing — build args manually for unit test
+        let unit = "ssh.service";
+        assert!(crate::providers::linux::systemd::unit_looks_safe(unit));
+        let args = vec!["-n", "systemctl", "restart", unit];
+        let prog = PathBuf::from("/usr/bin/sudo");
+        let _ = fake.run(&prog, &args);
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, args);
+    }
+
+    #[test]
+    fn sudo_args_reject_bad_unit() {
+        assert!(sudo_systemctl_args("restart", "bad unit").is_err());
+        assert!(sudo_systemctl_args("rm", "ssh.service").is_err());
+    }
+}

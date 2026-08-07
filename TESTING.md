@@ -31,7 +31,11 @@ cargo run -- --scan-path "$HOME"
 - Demo providers never require root
 - Diagnostic evaluator fixtures (OOM, temp wording, no false panic, health Unknown without required probes)
 - Report redaction (JSON without sensitive details by default)
-- XDG state.toml atomic roundtrip
+- XDG state.toml atomic roundtrip (incl. SMART CRC counters)
+- Safe file preview (symlink refuse, binary detect, 64KiB cap)
+- Console unit DryRunFs install/remove (no host writes)
+- Trusted sudo argv FakeCommandRunner
+- Viewport selection clamping
 - Footer hint compaction
 - TestBackend render smoke (80×24 dashboard/diagnostics; tiny terminal)
 
@@ -39,9 +43,19 @@ cargo run -- --scan-path "$HOME"
 
 - Kill real host processes
 - Restart real systemd units
+- Real `sudo`, SMART self-tests, or writing `/etc` units
 - Scan `/`
 - Require root
 - Mix Demo and Linux providers in one bundle
+- Require an interactive TTY for unit tests
+
+Also validate packaging:
+
+```bash
+cargo package --locked --allow-dirty   # or --locked when clean
+```
+
+Manual smoke never runs real install/remove host mutation.
 
 ## Diagnostic fixtures
 

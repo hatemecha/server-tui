@@ -17,6 +17,9 @@ pub struct AppPersistState {
     pub last_diagnostic_at: Option<u64>,
     #[serde(default)]
     pub acknowledged_finding_ids: HashSet<String>,
+    /// Last seen SMART UDMA CRC counters keyed by device path.
+    #[serde(default)]
+    pub smart_crc_counts: std::collections::HashMap<String, u64>,
 }
 
 impl AppPersistState {
@@ -78,6 +81,14 @@ impl AppPersistState {
 
     pub fn acknowledge(&mut self, id: &str) {
         self.acknowledged_finding_ids.insert(id.to_string());
+    }
+
+    pub fn remember_crc(&mut self, device: &str, count: u64) -> Option<u64> {
+        self.smart_crc_counts.insert(device.to_string(), count)
+    }
+
+    pub fn previous_crc(&self, device: &str) -> Option<u64> {
+        self.smart_crc_counts.get(device).copied()
     }
 }
 

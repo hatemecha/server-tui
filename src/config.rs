@@ -1,6 +1,7 @@
 //! Application configuration loaded from TOML.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,30 @@ pub struct Config {
     pub confirm_service_actions: bool,
     pub max_log_entries: usize,
     pub metric_history_size: usize,
+    #[serde(default)]
+    pub terminal_profile: crate::ui::theme::TerminalProfile,
+    #[serde(default)]
+    pub performance_profile: crate::ui::theme::PerformanceProfile,
+    #[serde(default)]
+    pub onboarding_completed: bool,
+    #[serde(default = "default_true")]
+    pub enable_smart_probes: bool,
+    #[serde(default = "default_true")]
+    pub diagnostics_light_scan: bool,
+    #[serde(default)]
+    pub wallboard_default: bool,
+    /// Days to keep support reports under XDG_STATE; 0 = never auto-clean.
+    #[serde(default = "default_report_days")]
+    pub report_retention_days: u64,
+    pub config_path_override: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_report_days() -> u64 {
+    30
 }
 
 impl Default for Config {
@@ -55,6 +80,14 @@ impl Default for Config {
             confirm_service_actions: true,
             max_log_entries: 5000,
             metric_history_size: 60,
+            terminal_profile: crate::ui::theme::TerminalProfile::Auto,
+            performance_profile: crate::ui::theme::PerformanceProfile::Auto,
+            onboarding_completed: false,
+            enable_smart_probes: true,
+            diagnostics_light_scan: true,
+            wallboard_default: false,
+            report_retention_days: 30,
+            config_path_override: None,
         }
     }
 }
@@ -105,6 +138,25 @@ impl Config {
 
     pub fn expand_scan_path(&self) -> PathBuf {
         expand_tilde(&self.default_scan_path)
+    }
+
+    /// Atomic write: tmp + fsync + rename.
+    pub fn save_atomic(&self, path: &Path) -> Result<(), AppError> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| AppError::Internal(e.to_string()))?;
+        }
+        let body = toml::to_string_pretty(self)
+            .map_err(|e| AppError::Internal(format!("config serialize: {e}")))?;
+        let tmp = path.with_extension("toml.tmp");
+        {
+            let mut f = fs::File::create(&tmp).map_err(|e| AppError::Internal(e.to_string()))?;
+            f.write_all(body.as_bytes())
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            f.sync_all()
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+        }
+        fs::rename(&tmp, path).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
     }
 }
 

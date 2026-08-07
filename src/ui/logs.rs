@@ -4,10 +4,11 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use crate::app::action::FocusPane;
 use crate::app::state::AppState;
 use crate::sanitize::truncate_width;
-use crate::ui::theme::Theme;
+use crate::ui::selection::{marker_for, selected_row_style};
+use crate::ui::viewport::sync_list_state;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let theme = Theme::new(state.color);
+    let theme = state.theme();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(5)])
@@ -16,7 +17,8 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let follow = if state.log_follow { "ON" } else { "OFF" };
     let unit = state.log_unit.as_deref().unwrap_or("(system)");
     let header = format!(
-        "unit: {unit}  follow: {follow}  priority<={}  wrap: {}",
+        "preset:{}  unit:{unit}  follow:{follow}  priority<={}  wrap:{}  [ cycle preset",
+        state.log_preset.label(),
         state.log_min_priority.label(),
         if state.log_wrap { "on" } else { "off" }
     );
@@ -30,40 +32,37 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let filtered = state
-        .logs
-        .filtered(state.current_search(), state.log_min_priority);
+    let filtered = state.logs.filtered_preset(
+        state.current_search(),
+        state.log_min_priority,
+        state.log_preset,
+        state.log_unit.as_deref(),
+    );
+    let visible = chunks[1].height.saturating_sub(2) as usize;
+    let mut vp = state.log_vp;
+    vp.ensure_visible(filtered.len(), visible.max(1));
+
     let items: Vec<ListItem> = filtered
         .iter()
         .enumerate()
         .map(|(i, e)| {
+            let selected = i == vp.selected;
             let pid = e.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
-            let line = if state.log_wrap {
-                format!(
-                    "{} {:>5} {:<22} {:>5} {}",
-                    e.timestamp,
-                    e.priority.label(),
-                    e.unit,
-                    pid,
-                    e.message
-                )
+            let msg = if state.log_wrap {
+                e.message.clone()
             } else {
-                let msg = truncate_width(&e.message, 120);
-                let suffix = if msg.chars().count() < e.message.chars().count() {
-                    "…"
-                } else {
-                    ""
-                };
-                format!(
-                    "{} {:>5} {:<22} {:>5} {msg}{suffix}",
-                    e.timestamp,
-                    e.priority.label(),
-                    e.unit,
-                    pid
-                )
+                truncate_width(&e.message, 120)
             };
-            let style = if i == state.log_selected {
-                theme.highlight()
+            let line = format!(
+                "{}{} {:>5} {:<18} {:>5} {msg}",
+                marker_for(selected),
+                e.timestamp,
+                e.priority.label(),
+                e.unit,
+                pid
+            );
+            let style = if selected {
+                selected_row_style(theme)
             } else if e.priority as u8 <= 3 {
                 theme.err()
             } else if e.priority as u8 == 4 {
@@ -84,11 +83,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                "Entries ({}){}",
-                filtered.len(),
+                "Entries {} {}",
+                vp.position_label(filtered.len()),
                 state.search_title_suffix()
             ))
             .border_style(border),
     );
-    frame.render_widget(list, chunks[1]);
+    let mut ls = vp.to_list_state();
+    sync_list_state(&vp, &mut ls);
+    frame.render_stateful_widget(list, chunks[1], &mut ls);
 }

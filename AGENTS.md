@@ -32,11 +32,14 @@ Primary modules:
 
 | Path | Role |
 |------|------|
-| `src/app/` | State, events, actions, update |
-| `src/ui/` | Rendering only |
+| `src/app/` | State, events, actions, update + inspect_actions/menus |
+| `src/ui/` | Rendering only (+ viewport/selection/status/settings/dialogs) |
 | `src/providers/` | Metrics/process/service/log/storage/diagnostics traits + impls |
-| `src/diagnostics/` | Pure evaluator + report formatting |
-| `src/actions/` | Admin executors (signals, systemd) |
+| `src/diagnostics/` | Pure evaluator + rules + report formatting |
+| `src/actions/` | Admin executors (signals, systemd, trusted cmds) |
+| `src/preview.rs` | Safe file preview + largest-files from storage tree |
+| `src/support.rs` | Redacted support reports |
+| `src/setup.rs` | Console unit generator + DryRunFs/RealFs (tests never RealFs) |
 | `src/glossary.rs` | Glossary overlay data + render |
 | `src/doctor.rs` | `doctor` CLI |
 | `src/persist.rs` | XDG state.toml |
@@ -52,7 +55,9 @@ Record ideas in `ROADMAP.md` only.
 
 ## Security rules
 
-- No telemetry, outbound product beacons, listeners, shell, arbitrary commands, password storage, setuid, auto file deletion, auto binary download.
+- No telemetry, outbound product beacons, listeners, shell, arbitrary commands, password storage, setuid, auto binary download.
+- XDG report cleanup may delete **only** aged files under the reports directory when the user opts in (retention + Settings `C`); never general file delete.
+- Optional interactive sudo escalation for typed known-unit systemctl actions is user-confirming and temporary (leave TUI → `sudo -v` → re-enter → `sudo -n`); never silent privilege escalation.
 - Sanitize all system-derived strings before paint (`sanitize_path_display` for paths).
 - Never signal PID 0, 1, or self.
 - Service actions only with validated unit names (`unit_looks_safe`) **and** known-unit registry membership.

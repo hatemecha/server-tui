@@ -126,8 +126,12 @@ pub fn footer_hints(state: &AppState) -> String {
         crate::app::Screen::Services => {
             hints.extend_from_slice(&[
                 KeyHint {
-                    key: "s/x/r",
+                    key: "s/x/R",
                     action: "start/stop/restart",
+                },
+                KeyHint {
+                    key: "u",
+                    action: "reload",
                 },
                 KeyHint {
                     key: "l",
@@ -187,7 +191,18 @@ pub fn footer_hints(state: &AppState) -> String {
                 },
             ]);
         }
-        crate::app::Screen::Dashboard => {}
+        crate::app::Screen::Dashboard => {
+            hints.push(KeyHint {
+                key: "w",
+                action: "wallboard",
+            });
+        }
+        crate::app::Screen::Settings => {
+            hints.push(KeyHint {
+                key: "j/k",
+                action: "section",
+            });
+        }
     }
 
     // Show active filter even when not editing.
@@ -273,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_footer_omits_search_hint() {
+    fn service_footer_uses_capital_r_for_restart() {
         let mut state = AppState::new(
             Config::default(),
             true,
@@ -282,12 +297,15 @@ mod tests {
             false,
             PathBuf::from("/tmp"),
         );
-        state.screen = crate::app::Screen::Dashboard;
-        state.width = 120;
-        let dash = footer_hints(&state);
-        assert!(!dash.contains("/ search"), "{dash}");
-        state.screen = crate::app::Screen::Processes;
-        let procs = footer_hints(&state);
-        assert!(procs.contains("/ search"), "{procs}");
+        state.screen = crate::app::Screen::Services;
+        state.width = 160;
+        let hints = footer_hints(&state);
+        assert!(hints.contains("R") && hints.contains("restart"), "{hints}");
+        assert!(
+            !hints.contains("s/x/r "),
+            "lowercase r must not mean restart: {hints}"
+        );
+        // Global refresh still present
+        assert!(hints.contains("r refresh"), "{hints}");
     }
 }

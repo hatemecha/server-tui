@@ -6,7 +6,8 @@ use async_trait::async_trait;
 use sysinfo::{ProcessesToUpdate, System, Users};
 
 use crate::error::AppError;
-use crate::model::ProcessInfo;
+use crate::model::{compute_memory_percentage, ProcessDetails, ProcessInfo};
+use crate::providers::linux::proc_details::{read_ppid_map, read_process_details};
 use crate::providers::ProcessProvider;
 use crate::sanitize::{sanitize_cell, sanitize_text};
 
@@ -39,6 +40,18 @@ impl ProcessProvider for LinuxProcessProvider {
             .await
             .map_err(|e| AppError::Internal(format!("process list join: {e}")))?
     }
+
+    async fn details(&self, pid: u32) -> Result<ProcessDetails, AppError> {
+        tokio::task::spawn_blocking(move || read_process_details(pid))
+            .await
+            .map_err(|e| AppError::Internal(format!("process details join: {e}")))?
+    }
+}
+
+pub async fn ppid_map(pids: Vec<u32>) -> Result<Vec<(u32, Option<u32>)>, AppError> {
+    tokio::task::spawn_blocking(move || read_ppid_map(&pids))
+        .await
+        .map_err(|e| AppError::Internal(format!("ppid map join: {e}")))
 }
 
 fn list_blocking(
@@ -52,8 +65,10 @@ fn list_blocking(
         .lock()
         .map_err(|_| AppError::Internal("users lock poisoned".into()))?;
 
+    // Refresh RAM totals first — process %.MEM requires a known total.
+    system.refresh_memory();
     system.refresh_processes(ProcessesToUpdate::All, true);
-    let total_mem = system.total_memory().max(1);
+    let total_mem = system.total_memory();
 
     let mut out = Vec::new();
     for (pid, proc_) in system.processes() {
@@ -63,7 +78,7 @@ fn list_blocking(
             .map(|u| u.name().to_string())
             .unwrap_or_else(|| uid.map(|u| u.to_string()).unwrap_or_else(|| "?".into()));
         let mem_bytes = proc_.memory();
-        let mem_pct = (mem_bytes as f64 / total_mem as f64 * 100.0) as f32;
+        let mem_pct = compute_memory_percentage(mem_bytes, total_mem);
         let cmd = if proc_.cmd().is_empty() {
             proc_.name().to_string_lossy().into_owned()
         } else {
@@ -88,4 +103,14 @@ fn list_blocking(
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::model::compute_memory_percentage;
+
+    #[test]
+    fn mem_pct_unknown_without_total() {
+        assert!(compute_memory_percentage(4096, 0).is_none());
+    }
 }

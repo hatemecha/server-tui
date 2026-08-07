@@ -57,4 +57,14 @@ Narrow terminals (<100 cols) use horizontal tabs. Footer hints compact below ~80
 
 ## Permissions
 
-Permission failures become `AppError::Permission` with systemd/D-Bus policy wording (Polkit mentioned only with evidence). Observation continues. No password prompts, no setuid helper.
+Permission failures become `AppError::Permission` with systemd/D-Bus policy wording (Polkit mentioned only with evidence). Observation continues.
+
+Optional **typed** elevation for known units: leave TUI → interactive `sudo -v` → re-enter → `sudo -n systemctl <action> <unit>` via trusted argv only. Disabled in `--demo` and `--read-only`.
+
+## Inspectors & exports
+
+On Enter (or ActionMenu), list screens open on-demand inspectors (process `/proc` details, service properties + recent logs, log ±5 context, storage mount/file preview). Export writes redacted reports under the XDG reports directory.
+
+## Viewport
+
+Each list screen owns a `ViewportState`; selection is clamped so it never leaves the visible window (see `src/ui/viewport.rs`).

@@ -20,6 +20,7 @@ pub fn evaluate(snapshot: &DiagnosticSnapshot) -> Vec<Finding> {
     findings.extend(rule_temperature(snapshot));
     findings.extend(rule_clock_sync(snapshot));
     findings.extend(rule_etc_meta(snapshot));
+    findings.extend(crate::diagnostics::rules::rule_smart(snapshot));
     findings
 }
 

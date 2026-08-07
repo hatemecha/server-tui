@@ -45,7 +45,7 @@ fn selection_moves_in_process_list() {
             name: "a".into(),
             cmd: "a".into(),
             cpu: 1.0,
-            mem_pct: 1.0,
+            mem_pct: Some(1.0),
             mem_bytes: 1,
             state: "S".into(),
             run_time_secs: 1,
@@ -57,7 +57,7 @@ fn selection_moves_in_process_list() {
             name: "b".into(),
             cmd: "b".into(),
             cpu: 2.0,
-            mem_pct: 2.0,
+            mem_pct: Some(2.0),
             mem_bytes: 2,
             state: "R".into(),
             run_time_secs: 2,
@@ -66,6 +66,6 @@ fn selection_moves_in_process_list() {
     ];
     s.process_sort = server_tui::model::ProcessSort::Pid;
     let _ = apply_action(&mut s, AppAction::MoveDown);
-    assert_eq!(s.process_selected, 1);
+    assert_eq!(s.process_selected(), 1);
     assert_eq!(s.process_selected_pid, Some(2));
 }

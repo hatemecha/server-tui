@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest an idea within MVP scope
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read ROADMAP.md and SECURITY.md first. Out-of-scope items (Docker UI, firewall editors, destructive disk tools, remote fleet, web) should not be requested as MVP features.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should server-tui do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Problem this solves on a local Linux server TUI.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This stays read-mostly / confirmation-gated and does not require a network listener
+          required: true

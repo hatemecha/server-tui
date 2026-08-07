@@ -1,16 +1,17 @@
-name: Pull request
-
 ## Summary
 
-<!-- Why this change is needed -->
+Briefly describe **why** this change exists (user-visible or maintainer impact).
 
-## Test plan
+## Checklist
 
 - [ ] `cargo fmt --all --check`
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --all`
-- [ ] Manual: `cargo run -- --demo` (and `--read-only` if relevant)
+- [ ] Docs / KEYBINDINGS updated when UX changes
+- [ ] No telemetry, listeners, `sh -c`, or destructive FS ops
+- [ ] Tests do not kill real processes / restart real services / scan `/`
 
-## Notes
+## Test plan
 
-<!-- Risk to production hosts? Prefer no destructive tests. -->
+- [ ] `cargo run -- --demo`
+- [ ] Relevant screen/manual smoke if UI changed

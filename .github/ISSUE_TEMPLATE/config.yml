@@ -1,5 +1,10 @@
-blank_issues_enabled: true
+# GitHub config
+
+blank_issues_enabled: false
 contact_links:
-  - name: Maintainer profile
-    url: https://github.com/hatemecha
-    about: Contact the maintainer for private security discussions if Advisories are not configured yet.
+  - name: Security
+    url: https://github.com/hatemecha/server-tui/blob/main/SECURITY.md
+    about: Report security issues privately per SECURITY.md — do not open a public issue for vulnerabilities.
+  - name: Discussions / support
+    url: https://github.com/hatemecha/server-tui/blob/main/SUPPORT.md
+    about: How to get help and what is in/out of support scope.

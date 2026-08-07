@@ -1,6 +1,7 @@
 pub mod diagnostics;
 pub mod journal;
 pub mod metrics;
+pub mod proc_details;
 pub mod processes;
 pub mod storage;
 pub mod systemd;

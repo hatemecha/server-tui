@@ -299,7 +299,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme) {
     let selected = if ordered.is_empty() {
         0
     } else {
-        state.glossary_selected.min(ordered.len() - 1)
+        state.glossary_selected().min(ordered.len() - 1)
     };
 
     let title = if searching {

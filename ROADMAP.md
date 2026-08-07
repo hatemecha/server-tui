@@ -1,36 +1,25 @@
 # Roadmap
 
-## Done in 0.2
+## Done in 0.3
 
-- Hardening (visible processes, UnitFileState, ListUnitFiles, unit registry, confirm UX, SIGKILL semantics, metrics caching, task shutdown, sanitize paths, per-screen search, SubsystemHealth)
-- Diagnostics screen + pure evaluator + probes + doctor CLI
-- Glossary overlay
-- XDG state.toml acknowledgements
-
-## Next
-
-- Richer systemd unit details / dependencies graph
-- Native journald API (sd-journal) without journalctl child
-- Configurable process signal set (INT/HUP)
-- Export metrics snapshot to file
-- Session layout persistence beyond acknowledgements
-- musl CI artifacts (after validation)
+- Viewport scrolling, selection markers, toast status, terminal/performance profiles
+- Settings + first-run onboarding flag, wallboard, support CLI, console unit generator
+- Process MEM% correctness; service hotkey coherence (`r` refresh / `R` restart)
+- SMART read-only findings; Attention dashboard panel
+- Repo polish (CI matrix, release workflow, deny/audit/dependabot, README)
 
 ## Future ideas (MVP out of scope — do not implement yet)
 
-- Netplan read-only view
-- Firewall status view (UFW/nftables read-only)
-- User session listing (read-only)
-- Package update counts (read-only)
-- Docker/Podman container list (opt-in)
-- Embedded read-only file viewer
+- Richer systemd unit dependency graph
+- Native journald API (sd-journal) without journalctl child
+- Configurable process signal set beyond TERM/KILL/STOP/CONT
+- Session layout persistence beyond acknowledgements / onboarding
+- Netplan / firewall / users / packages / containers UIs (read-only proposals)
+- Embedded file editor / destructive disk tools
+- Remote multi-host fleet / HTTP API / plugins / telemetry
 
 ## Out of scope
 
 - Replacing Cockpit
-- Remote multi-host fleet control
-- Web frontend / HTTP API
-- Plugin marketplace
-- Telemetry / accounts online
-- Destructive disk tools (format, LVM reshape)
 - Auto privilege escalation helpers
+- Automatic repair / AI remediation

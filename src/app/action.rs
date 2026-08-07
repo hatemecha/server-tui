@@ -12,6 +12,7 @@ pub enum Screen {
     Logs,
     Storage,
     Diagnostics,
+    Settings,
 }
 
 impl Screen {
@@ -23,6 +24,7 @@ impl Screen {
             '4' => Some(Self::Logs),
             '5' => Some(Self::Storage),
             '6' => Some(Self::Diagnostics),
+            '7' => Some(Self::Settings),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ impl Screen {
             Self::Logs => "Logs",
             Self::Storage => "Storage",
             Self::Diagnostics => "Diagnostics",
+            Self::Settings => "Settings",
         }
     }
 
@@ -46,12 +49,13 @@ impl Screen {
             Self::Logs,
             Self::Storage,
             Self::Diagnostics,
+            Self::Settings,
         ]
     }
 
-    /// Screens with a filterable list (Dashboard is overview-only).
+    /// Screens with a filterable list (Dashboard/Settings are overview-only).
     pub fn supports_search(self) -> bool {
-        !matches!(self, Self::Dashboard)
+        !matches!(self, Self::Dashboard | Self::Settings)
     }
 }
 
@@ -124,9 +128,30 @@ pub enum AppAction {
     ConfirmFocusRight,
     ToggleHelp,
     ToggleGlossary,
+    ToggleWallboard,
+    OpenActionMenu,
+    Inspect,
+    CycleLogPreset,
+    CycleStorageTab,
+    DeepDiagnostics,
+    ResetSettings,
+    SettingsMove,
     OpenDiagnosticReport,
     AcknowledgeFinding,
     FollowDiagnosticTarget,
+    SignalStop,
+    SignalCont,
+    ExportContext,
+    ActivateMenu,
+    MenuSelect,
+    ToggleProcessTree,
+    ToggleProcessFollow,
+    CompleteOnboarding,
+    SaveSettings,
+    CycleTerminalProfile,
+    CyclePerformanceProfile,
+    ToggleConfigBool(&'static str),
+    CleanupReportsNow,
     Quit,
     // Internal typed admin intents after confirmation.
     ExecuteSignal {

@@ -3,6 +3,32 @@
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StorageTab {
+    #[default]
+    Mounts,
+    DirectoryUsage,
+    LargestFiles,
+}
+
+impl StorageTab {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Mounts => Self::DirectoryUsage,
+            Self::DirectoryUsage => Self::LargestFiles,
+            Self::LargestFiles => Self::Mounts,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mounts => "mounts",
+            Self::DirectoryUsage => "dirs",
+            Self::LargestFiles => "largest",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StorageSort {
     #[default]
     Size,

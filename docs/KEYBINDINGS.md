@@ -4,75 +4,102 @@
 
 | Key | Action |
 |-----|--------|
-| `1`–`6` | Screens (Dashboard … Diagnostics) |
+| `1`–`7` | Screens (Dashboard … Settings) |
 | `Tab` / `Shift+Tab` | Cycle focus (nav / content / details) |
-| `/` | Filter current list (Processes, Services, Logs, Storage, Diagnostics; also Glossary). Matches relevant row fields. Not advertised on Dashboard. |
-| `Esc` | Clear active filter / cancel dialog / cancel storage scan / leave search |
-| `r` | Refresh current screen (diagnostics re-probes) |
-| `g` | Glossary overlay |
-| `?` | Help (keybindings) |
-| `q` / `Ctrl+C` | Quit (terminal restored) |
-
-## Confirm dialogs
-
-| Key | Action |
-|-----|--------|
-| `Left` / `Right` / `Tab` | Move Yes/Cancel focus (default **Cancel**) |
-| `Enter` | Activate **focused** button |
-| `y` | Confirm |
-| `n` / `Esc` | Cancel |
+| `/` | Filter current list (not Dashboard/Settings) |
+| `Esc` | Clear filter / cancel dialog / cancel scan |
+| `r` | **Refresh** (always — never restart) |
+| `w` | Toggle wallboard (Dashboard; also `--wallboard`) |
+| `g` | Glossary |
+| `?` | Help |
+| `q` / `Ctrl+C` | Quit |
 
 ## Processes
 
 | Key | Action |
 |-----|--------|
-| `j`/`k` / arrows | Move |
+| `j`/`k` · arrows · PgUp/PgDn · Home/End | Move (viewport keeps selection visible) |
 | `s` | Cycle sort |
 | `c` | Toggle full command |
-| `t` | SIGTERM (confirm) |
-| `K` | SIGKILL (confirm + warning) |
+| `Enter` | Process inspector (parent, cmdline, IO, cgroup, unit, fds) |
+| `m` | Action menu (follow, tree, signals, export, …) |
+| `F` / `T` | Follow selected PID / tree view (on-demand parents) |
+| `t` / `K` / `z` / `Z` | SIGTERM / SIGKILL / SIGSTOP / SIGCONT (confirm) |
+| `e` | Export process context (redacted) |
 
 ## Services
 
 | Key | Action |
 |-----|--------|
-| `s`/`x`/`r`/`R`/`e`/`d` | start/stop/restart/reload/enable/disable |
-| `l` | Open logs for selected unit |
-| `f` | Toggle failed-only filter |
+| `Enter` / `m` | Inspector (properties + recent logs) / action menu |
+| `s` | Start |
+| `x` | Stop |
+| `R` | Restart |
+| `u` | Reload |
+| `e` / `d` | Enable / Disable |
+| `E` | Export service context |
+| `l` | Logs for unit |
+| `f` | Failed-only filter |
 
-Confirmations default to Cancel.
+Permission-denied D-Bus actions may prompt `sudo -v` then typed `sudo -n systemctl <action> <unit>` (not in `--demo` / `--read-only`).
 
 ## Logs
 
 | Key | Action |
 |-----|--------|
-| `f` | Toggle follow |
-| `n`/`N` | Next/prev search match |
-| `p` | Cycle min priority |
-| `w` | Toggle wrap |
+| `f` | Follow |
+| `n`/`N` | Next/prev match |
+| `p` | Priority floor |
+| `w` | Wrap |
+| `[` | Cycle preset (important / boot / 1h / kernel / service / all) |
+| `Enter` | Event inspector (±5 context) |
+| `m` | Export menu (selected / visible / context; text|md|json) |
+| `e` | Export visible (text) |
 
 ## Storage
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Enter directory |
-| `Backspace` | Parent |
-| `s` | Sort |
-| `a` | Apparent vs disk size |
-| `x` | Stay on filesystem |
-| `Esc` | Cancel running scan |
+| `t` | Cycle tabs (mounts / directory / largest) |
+| `Enter` | Mounts: details · Directory: enter dir · Largest/file: 64KiB preview |
+| `Backspace` | Parent (directory tab) |
+| `s` / `a` / `x` | Sort / apparent / stay-on-fs |
+| `r` | Rescan |
+| `Esc` | Cancel scan |
+| `m` | Action menu (preview) |
+
+No delete.
 
 ## Diagnostics
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Follow deep link (screen + search) |
-| `o` | Open redacted report |
-| `a` | Acknowledge finding (persisted) |
-| `r` | Re-run probes |
+| `Enter` | Finding inspector |
+| `e` / `m` | Export finding · action menu |
+| `o` | Full diagnostic report overlay |
+| `a` | Acknowledge |
+| `D` | Deep scan (enables SMART when allowed in Settings) |
+| `r` | Re-probe |
+
+## Settings (`7`)
+
+| Key | Action |
+|-----|--------|
+| `j`/`k` | Section |
+| `t` / `p` | Terminal / performance profile |
+| `1`–`5` | Confirm + SMART + light-scan toggles |
+| `w` / `c` | Wallboard / color |
+| `S` / Enter | Atomic save |
+| `o` | Complete onboarding (confirm) |
+| `d` | Reset settings (confirm) |
+| `C` | Cleanup old reports (retention days) |
 
 ## CLI
 
 ```bash
 server-tui doctor [--report] [--json] [--include-sensitive] [--demo]
+server-tui support [--format text|markdown|json] [--output PATH] [--include-sensitive] [--demo]
+server-tui setup console --status|--print-unit [--tty tty2] [--user NAME]
 ```
+
+Install/remove of the console unit is library-backed (`ConsoleFsOps`); automated tests/smoke use dry-run only and never write `/etc`.

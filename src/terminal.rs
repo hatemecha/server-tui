@@ -48,6 +48,22 @@ impl TerminalGuard {
         TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
         Ok(())
     }
+
+    /// Leave alternate screen so the user can interact with `sudo -v` on the real TTY.
+    pub fn leave_for_external(&mut self) -> Result<(), AppError> {
+        restore_terminal_state().map_err(|e| AppError::Terminal(e.to_string()))?;
+        self.restored = true;
+        TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Re-enter alternate screen after an external privilege prompt.
+    pub fn reenter(&mut self) -> Result<(), AppError> {
+        let fresh = enter_inner()?;
+        // Prevent Drop of temporary from restoring wrongly: move fields.
+        *self = fresh;
+        Ok(())
+    }
 }
 
 fn enter_inner() -> Result<TerminalGuard, AppError> {

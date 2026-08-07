@@ -1,5 +1,6 @@
 pub mod diagnostics;
 pub mod health;
+pub mod inspect;
 pub mod log;
 pub mod metrics;
 pub mod process;
@@ -9,6 +10,7 @@ pub mod unit_registry;
 
 pub use diagnostics::*;
 pub use health::*;
+pub use inspect::*;
 pub use log::*;
 pub use metrics::*;
 pub use process::*;

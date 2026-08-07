@@ -8,7 +8,7 @@ use crate::ui::components::{gauge, sparkline};
 use crate::ui::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let theme = Theme::new(state.color);
+    let theme = state.theme();
 
     if area.height < 8 || area.width < 24 {
         draw_compact(frame, area, state, theme);
@@ -33,6 +33,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     if net_h > 0 {
         constraints.push(Constraint::Length(net_h));
     }
+    constraints.push(Constraint::Length(5));
     constraints.push(Constraint::Min(3));
 
     let cols = Layout::default()
@@ -55,6 +56,8 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         draw_network(frame, cols[idx], state, theme);
         idx += 1;
     }
+    draw_attention_strip(frame, cols[idx], state, theme);
+    idx += 1;
     draw_disks_sensors(frame, cols[idx], state, theme);
 }
 
@@ -76,6 +79,64 @@ fn draw_compact(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Them
                 .border_style(theme.border()),
         ),
         area,
+    );
+}
+
+fn draw_attention_strip(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme) {
+    let findings = state.visible_findings();
+    let mut lines: Vec<Line> = findings
+        .iter()
+        .take(5)
+        .map(|f| {
+            Line::from(format!(
+                "[{}] {}",
+                f.severity.label(),
+                truncate_width(&f.title, area.width.saturating_sub(6) as usize)
+            ))
+        })
+        .collect();
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "no attention items",
+            theme.muted(),
+        )));
+    }
+    let recent: Vec<Line> = state
+        .activity
+        .iter()
+        .rev()
+        .take(5)
+        .map(|a| Line::from(truncate_width(a, area.width.saturating_sub(2) as usize)))
+        .collect();
+    let split = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Attention (6 Diagnostics)")
+                .border_style(theme.border()),
+        ),
+        split[0],
+    );
+    frame.render_widget(
+        Paragraph::new(if recent.is_empty() {
+            vec![Line::from(Span::styled(
+                "no recent activity",
+                theme.muted(),
+            ))]
+        } else {
+            recent
+        })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Recent")
+                .border_style(theme.border()),
+        ),
+        split[1],
     );
 }
 

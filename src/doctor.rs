@@ -43,7 +43,7 @@ pub async fn run_doctor(args: DoctorArgs) -> u8 {
         linux_bundle(true, &config)
     };
 
-    let snap = match providers.diagnostics.probe().await {
+    let snap = match providers.diagnostics.probe(true, true).await {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{APP_NAME} doctor: probe failed: {}", e.user_message());

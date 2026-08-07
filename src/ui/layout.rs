@@ -14,7 +14,7 @@ pub fn draw_shell<F>(frame: &mut Frame<'_>, state: &AppState, mut content: F)
 where
     F: FnMut(&mut Frame<'_>, Rect, &AppState),
 {
-    let theme = Theme::new(state.color);
+    let theme = state.theme();
     let area = frame.area();
 
     let chunks = Layout::default()
@@ -28,7 +28,10 @@ where
 
     draw_header(frame, chunks[0], state, theme);
 
-    if state.narrow_nav() {
+    if state.wallboard {
+        // Less chrome: full-width content, no nav strip.
+        content(frame, chunks[1], state);
+    } else if state.narrow_nav() {
         let mid = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(3)])

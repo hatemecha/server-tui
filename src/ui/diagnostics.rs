@@ -1,11 +1,13 @@
 //! Diagnostics screen: findings list + details + deep links.
 
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Row, Scrollbar, ScrollbarState, Table, Wrap};
 
 use crate::app::action::FocusPane;
 use crate::app::state::AppState;
+use crate::ui::selection::{marker_for, selected_row_style};
 use crate::ui::theme::Theme;
+use crate::ui::viewport::sync_table_state;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let theme = Theme::new(state.color);
@@ -40,27 +42,27 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let filtered: Vec<(usize, &crate::model::Finding)> = state
-        .findings
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| crate::model::finding_matches(f, state.current_search()))
-        .collect();
+    let filtered: Vec<&crate::model::Finding> = state.visible_findings();
+    let visible = chunks[1].height.saturating_sub(3) as usize;
+    let mut vp = state.finding_vp;
+    vp.ensure_visible(filtered.len(), visible.max(1));
 
-    let header = Row::new(vec!["SEV", "ID", "TITLE"]).style(theme.accent());
-    let rows = filtered.iter().enumerate().map(|(i, (_, f))| {
+    let header = Row::new(vec!["", "SEV", "ID", "TITLE"]).style(theme.accent());
+    let rows = filtered.iter().enumerate().map(|(i, f)| {
+        let selected = i == vp.selected;
         let ack = if state.persist.is_acknowledged(&f.id) {
             " (ack)"
         } else {
             ""
         };
         let row = Row::new(vec![
+            marker_for(selected).to_string(),
             f.severity.label().to_string(),
             f.id.clone(),
             format!("{}{ack}", f.title),
         ]);
-        if i == state.finding_selected.min(filtered.len().saturating_sub(1)) {
-            row.style(theme.highlight())
+        if selected {
+            row.style(selected_row_style(theme))
         } else {
             row
         }
@@ -74,6 +76,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let table = Table::new(
         rows,
         [
+            Constraint::Length(1),
             Constraint::Length(9),
             Constraint::Length(28),
             Constraint::Min(20),
@@ -84,20 +87,30 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                "Findings ({}){}",
+                "Findings ({}) {}{}",
                 filtered.len(),
+                vp.position_label(filtered.len()),
                 state.search_title_suffix()
             ))
             .border_style(border),
     );
-    frame.render_widget(table, chunks[1]);
+    let mut table_state = vp.to_table_state();
+    sync_table_state(&vp, &mut table_state);
+    frame.render_stateful_widget(table, chunks[1], &mut table_state);
 
-    let detail_idx = if filtered.is_empty() {
-        0
-    } else {
-        state.finding_selected.min(filtered.len() - 1)
-    };
-    let detail = if let Some((_, f)) = filtered.get(detail_idx) {
+    if filtered.len() > visible && visible > 0 {
+        let mut sb = ScrollbarState::new(filtered.len().saturating_sub(1)).position(vp.selected);
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ratatui::widgets::ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None),
+            chunks[1],
+            &mut sb,
+        );
+    }
+
+    let detail = if let Some(f) = filtered.get(vp.selected) {
         let targets = f
             .targets
             .iter()
@@ -136,7 +149,8 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             f.evidence.summary
         )
     } else {
-        "No findings. Press r to refresh diagnostics.".into()
+        "No findings. Press r to refresh diagnostics. Enter opens inspector · e exports · D deep."
+            .into()
     };
 
     frame.render_widget(

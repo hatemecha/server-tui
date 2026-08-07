@@ -1,6 +1,42 @@
 # Changelog
 
-## 0.2.0 — 2026-08-07
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+## [0.3.0] — 2026-08-07
+
+### Added
+
+- Settings screen (`7`) with General / Appearance / Performance / Dashboard / Logs / Diagnostics / Safety / Startup
+- Terminal profiles (`--terminal-profile`) and performance profiles (`--performance-profile`)
+- Wallboard mode (`--wallboard` / `w` on Dashboard)
+- Reusable viewport scrolling with `N / M` position labels and scrollbars on list screens
+- Selection markers (`>`) + REVERSED/BOLD for `--no-color` / Tty16
+- Toast/status kinds (success/warning/error/progress)
+- Process signals SIGSTOP/SIGCONT; service hotkeys: `r` refresh, `R` restart, `u` reload
+- Support reports: `server-tui support [--format text|markdown|json]`
+- Startup console generator: `server-tui setup console --status|--print-unit` (install refused in smoke)
+- Trusted command resolution for sudo/systemctl paths; FakeCommandRunner tests
+- SMART read-only probe (`smartctl -H -A -l error`) + CRC findings (pure rules)
+- Dashboard Attention + Recent activity panels
+- Config atomic save; onboarding_completed; first-run settings hint
+- CI matrix (ubuntu-22.04 + latest), MSRV 1.81 job, TERM=linux render job, deny/audit/dependabot, release workflow on `v*` tags
+- VHS tape at `docs/assets/demo.tape`
+
+### Fixed
+
+- Process MEM%: refresh memory before %; `Option<f32>` with `?` when unknown; no `total_memory.max(1)` hide
+- Services `r` no longer conflicts with global refresh
+
+### Changed
+
+- README product-first; ACKNOWLEDGEMENTS.md replaces THIRD_PARTY_REFERENCES.md
+- Version 0.3.0
+
+## [0.2.0] — 2026-08-07
 
 Hardening + diagnostics release:
 
@@ -20,7 +56,7 @@ Hardening + diagnostics release:
 - Repository URL fixed to https://github.com/hatemecha/server-tui; MSRV 1.81
 - Install docs: `cargo install --git`, PATH-aware `install-local.sh`, honest Releases/crates.io status; glossary doc maps to in-app `g`
 
-## 0.1.0 — 2026-08-06
+## [0.1.0] — 2026-08-06
 
 Initial public MVP:
 

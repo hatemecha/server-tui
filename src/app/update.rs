@@ -26,6 +26,9 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         }
         (KeyCode::Char('?'), _) => return Some(AppAction::ToggleHelp),
         (KeyCode::Char('g'), _) => return Some(AppAction::ToggleGlossary),
+        (KeyCode::Char('w'), _) if matches!(state.screen, Screen::Dashboard) => {
+            return Some(AppAction::ToggleWallboard)
+        }
         (KeyCode::Tab, KeyModifiers::SHIFT) => return Some(AppAction::PrevFocus),
         (KeyCode::BackTab, _) => return Some(AppAction::PrevFocus),
         (KeyCode::Tab, _) => return Some(AppAction::NextFocus),
@@ -44,16 +47,31 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
     match state.screen {
         Screen::Dashboard => map_dashboard(key),
         Screen::Processes => map_processes(key),
-        Screen::Services => map_services(state, key),
+        Screen::Services => map_services(key),
         Screen::Logs => map_logs(key),
         Screen::Storage => map_storage(state, key),
         Screen::Diagnostics => map_diagnostics(key),
+        Screen::Settings => map_settings(key),
     }
 }
 
 fn map_dialog_key(state: &AppState, dialog: &Dialog, key: KeyEvent) -> Option<AppAction> {
     match dialog {
-        Dialog::ConfirmSignal { .. } | Dialog::ConfirmService { .. } => match key.code {
+        Dialog::ActionMenu { .. } => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => Some(AppAction::Cancel),
+            KeyCode::Up | KeyCode::Char('k') => Some(AppAction::MoveUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(AppAction::MoveDown),
+            KeyCode::Enter => Some(AppAction::ActivateMenu),
+            _ => None,
+        },
+        Dialog::Inspector { .. } => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => Some(AppAction::Cancel),
+            _ => Some(AppAction::Cancel),
+        },
+        Dialog::ConfirmSignal { .. }
+        | Dialog::ConfirmService { .. }
+        | Dialog::ConfirmResetSettings { .. }
+        | Dialog::ConfirmCompleteOnboarding { .. } => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') => Some(AppAction::Cancel),
             KeyCode::Char('y') => Some(AppAction::Confirm),
             KeyCode::Left | KeyCode::BackTab => Some(AppAction::ConfirmFocusLeft),
@@ -107,6 +125,8 @@ fn map_search_key(key: KeyEvent) -> Option<AppAction> {
 fn map_dashboard(key: KeyEvent) -> Option<AppAction> {
     match key.code {
         KeyCode::Char('r') => Some(AppAction::Refresh),
+        KeyCode::Char('w') => Some(AppAction::ToggleWallboard),
+        KeyCode::Enter => Some(AppAction::Inspect),
         _ => None,
     }
 }
@@ -124,12 +144,22 @@ fn map_processes(key: KeyEvent) -> Option<AppAction> {
         KeyCode::Char('r') => Some(AppAction::Refresh),
         KeyCode::Char('t') => Some(AppAction::SignalTerm),
         KeyCode::Char('K') => Some(AppAction::SignalKill),
+        KeyCode::Char('z') => Some(AppAction::SignalStop),
+        KeyCode::Char('Z') => Some(AppAction::SignalCont),
+        KeyCode::Enter => Some(AppAction::Inspect),
+        KeyCode::Char('m') => Some(AppAction::OpenActionMenu),
+        KeyCode::Char('e') => Some(AppAction::ExportContext),
+        KeyCode::Char('F') => Some(AppAction::ToggleProcessFollow),
+        KeyCode::Char('T') => Some(AppAction::ToggleProcessTree),
         _ => None,
     }
 }
 
-fn map_services(state: &AppState, key: KeyEvent) -> Option<AppAction> {
+fn map_services(key: KeyEvent) -> Option<AppAction> {
     match key.code {
+        KeyCode::Enter => Some(AppAction::Inspect),
+        KeyCode::Char('m') => Some(AppAction::OpenActionMenu),
+        KeyCode::Char('E') => Some(AppAction::ExportContext),
         KeyCode::Up | KeyCode::Char('k') => Some(AppAction::MoveUp),
         KeyCode::Down | KeyCode::Char('j') => Some(AppAction::MoveDown),
         KeyCode::PageUp => Some(AppAction::PageUp),
@@ -138,14 +168,9 @@ fn map_services(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         KeyCode::End => Some(AppAction::End),
         KeyCode::Char('s') => Some(AppAction::StartService),
         KeyCode::Char('x') => Some(AppAction::StopService),
-        KeyCode::Char('r') => {
-            if state.focus == FocusPane::Content {
-                Some(AppAction::RestartService)
-            } else {
-                Some(AppAction::Refresh)
-            }
-        }
-        KeyCode::Char('R') => Some(AppAction::ReloadService),
+        KeyCode::Char('r') => Some(AppAction::Refresh),
+        KeyCode::Char('R') => Some(AppAction::RestartService),
+        KeyCode::Char('u') => Some(AppAction::ReloadService),
         KeyCode::Char('e') => Some(AppAction::EnableService),
         KeyCode::Char('d') => Some(AppAction::DisableService),
         KeyCode::Char('l') => Some(AppAction::OpenLogsForSelected),
@@ -168,6 +193,10 @@ fn map_logs(key: KeyEvent) -> Option<AppAction> {
         KeyCode::Char('p') => Some(AppAction::ChangePriority),
         KeyCode::Char('w') => Some(AppAction::ToggleWrap),
         KeyCode::Char('r') => Some(AppAction::Refresh),
+        KeyCode::Char('[') => Some(AppAction::CycleLogPreset),
+        KeyCode::Enter => Some(AppAction::Inspect),
+        KeyCode::Char('e') => Some(AppAction::ExportContext),
+        KeyCode::Char('m') => Some(AppAction::OpenActionMenu),
         _ => None,
     }
 }
@@ -180,15 +209,51 @@ fn map_storage(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         KeyCode::PageDown => Some(AppAction::PageDown),
         KeyCode::Home => Some(AppAction::Home),
         KeyCode::End => Some(AppAction::End),
-        KeyCode::Enter => Some(AppAction::EnterDir),
+        KeyCode::Enter => match state.storage_tab {
+            crate::model::StorageTab::DirectoryUsage => {
+                let children = state.visible_storage_children();
+                match children.get(state.storage_selected()) {
+                    Some(n) if n.is_dir => Some(AppAction::EnterDir),
+                    Some(_) => Some(AppAction::Inspect),
+                    None => None,
+                }
+            }
+            _ => Some(AppAction::Inspect),
+        },
         KeyCode::Backspace => Some(AppAction::ParentDir),
         KeyCode::Char('s') => Some(AppAction::ChangeSort),
         KeyCode::Char('a') => Some(AppAction::ToggleApparentSize),
         KeyCode::Char('x') => Some(AppAction::ToggleStayOnFs),
         KeyCode::Char('r') => Some(AppAction::StartStorageScan(None)),
+        KeyCode::Char('t') => Some(AppAction::CycleStorageTab),
+        KeyCode::Char('e') => Some(AppAction::ExportContext),
+        KeyCode::Char('m') => Some(AppAction::OpenActionMenu),
         KeyCode::Esc if state.scan_state == ScanState::Running => {
             Some(AppAction::CancelStorageScan)
         }
+        _ => None,
+    }
+}
+
+fn map_settings(key: KeyEvent) -> Option<AppAction> {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(AppAction::MoveUp),
+        KeyCode::Down | KeyCode::Char('j') => Some(AppAction::MoveDown),
+        KeyCode::Char('r') => Some(AppAction::Refresh),
+        KeyCode::Char('d') => Some(AppAction::ResetSettings),
+        KeyCode::Char('S') => Some(AppAction::SaveSettings),
+        KeyCode::Char('o') => Some(AppAction::CompleteOnboarding),
+        KeyCode::Char('t') => Some(AppAction::CycleTerminalProfile),
+        KeyCode::Char('p') => Some(AppAction::CyclePerformanceProfile),
+        KeyCode::Char('w') => Some(AppAction::ToggleConfigBool("wallboard")),
+        KeyCode::Char('c') => Some(AppAction::ToggleConfigBool("color")),
+        KeyCode::Char('1') => Some(AppAction::ToggleConfigBool("confirm_sigterm")),
+        KeyCode::Char('2') => Some(AppAction::ToggleConfigBool("confirm_sigkill")),
+        KeyCode::Char('3') => Some(AppAction::ToggleConfigBool("confirm_service_actions")),
+        KeyCode::Char('4') => Some(AppAction::ToggleConfigBool("enable_smart_probes")),
+        KeyCode::Char('5') => Some(AppAction::ToggleConfigBool("diagnostics_light_scan")),
+        KeyCode::Char('C') => Some(AppAction::CleanupReportsNow),
+        KeyCode::Enter => Some(AppAction::SaveSettings),
         _ => None,
     }
 }
@@ -204,7 +269,11 @@ fn map_diagnostics(key: KeyEvent) -> Option<AppAction> {
         KeyCode::Char('r') => Some(AppAction::Refresh),
         KeyCode::Char('o') => Some(AppAction::OpenDiagnosticReport),
         KeyCode::Char('a') => Some(AppAction::AcknowledgeFinding),
-        KeyCode::Enter => Some(AppAction::FollowDiagnosticTarget),
+        KeyCode::Char('D') => Some(AppAction::DeepDiagnostics),
+        KeyCode::Enter => Some(AppAction::Inspect),
+        KeyCode::Char('f') => Some(AppAction::FollowDiagnosticTarget),
+        KeyCode::Char('m') => Some(AppAction::OpenActionMenu),
+        KeyCode::Char('e') => Some(AppAction::ExportContext),
         _ => None,
     }
 }
@@ -220,6 +289,13 @@ pub enum SideEffect {
     RefreshDiagnostics,
     FetchServiceDetails {
         unit: String,
+    },
+    FetchProcessDetails {
+        pid: u32,
+    },
+    FetchPpidMap,
+    PreviewFile {
+        path: std::path::PathBuf,
     },
     StartFollow {
         unit: Option<String>,
@@ -238,6 +314,12 @@ pub enum SideEffect {
         unit: String,
         action: ServiceActionKind,
     },
+    /// After D-Bus permission failure: restore TTY → sudo -v → re-enter → sudo -n systemctl.
+    SudoServiceAction {
+        unit: String,
+        action: ServiceActionKind,
+    },
+    CleanupReports,
 }
 
 pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> {
@@ -288,6 +370,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 state.diagnostic_running = true;
                 effects.push(SideEffect::RefreshDiagnostics);
             }
+            Screen::Settings => state.set_status("settings"),
         },
         AppAction::NextFocus => {
             state.focus = match state.focus {
@@ -354,7 +437,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                     let visible = state.visible_processes();
                     preserve_selection(&visible, selected_pid)
                 };
-                state.process_selected = idx;
+                state.process_vp.selected = idx;
                 state.set_status(format!("sort: {}", state.process_sort.label()));
             }
             Screen::Storage => {
@@ -403,14 +486,38 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         AppAction::EnterDir => enter_storage_dir(state),
         AppAction::ParentDir => {
             state.storage_cwd.pop();
-            state.storage_selected = 0;
+            state.storage_vp.selected = 0;
         }
-        AppAction::StartService => maybe_confirm_service(state, ServiceActionKind::Start),
-        AppAction::StopService => maybe_confirm_service(state, ServiceActionKind::Stop),
-        AppAction::RestartService => maybe_confirm_service(state, ServiceActionKind::Restart),
-        AppAction::ReloadService => maybe_confirm_service(state, ServiceActionKind::Reload),
-        AppAction::EnableService => maybe_confirm_service(state, ServiceActionKind::Enable),
-        AppAction::DisableService => maybe_confirm_service(state, ServiceActionKind::Disable),
+        AppAction::StartService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Start) {
+                effects.push(e);
+            }
+        }
+        AppAction::StopService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Stop) {
+                effects.push(e);
+            }
+        }
+        AppAction::RestartService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Restart) {
+                effects.push(e);
+            }
+        }
+        AppAction::ReloadService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Reload) {
+                effects.push(e);
+            }
+        }
+        AppAction::EnableService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Enable) {
+                effects.push(e);
+            }
+        }
+        AppAction::DisableService => {
+            if let Some(e) = maybe_confirm_service(state, ServiceActionKind::Disable) {
+                effects.push(e);
+            }
+        }
         AppAction::OpenLogsForSelected => {
             if let Some(unit) = selected_service_unit(state) {
                 state.log_unit = Some(unit.clone());
@@ -419,8 +526,16 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 effects.push(SideEffect::RefreshLogs { unit: Some(unit) });
             }
         }
-        AppAction::SignalTerm => maybe_confirm_signal(state, ProcessSignal::Term),
-        AppAction::SignalKill => maybe_confirm_signal(state, ProcessSignal::Kill),
+        AppAction::SignalTerm => {
+            if let Some(e) = maybe_confirm_signal(state, ProcessSignal::Term) {
+                effects.push(e);
+            }
+        }
+        AppAction::SignalKill => {
+            if let Some(e) = maybe_confirm_signal(state, ProcessSignal::Kill) {
+                effects.push(e);
+            }
+        }
         AppAction::StartStorageScan(path) => {
             let path = path.unwrap_or_else(|| state.scan_path.clone());
             state.scan_path = path.clone();
@@ -437,7 +552,10 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         }
         AppAction::ConfirmFocusLeft | AppAction::ConfirmFocusRight => {
             if let Some(
-                Dialog::ConfirmSignal { choice, .. } | Dialog::ConfirmService { choice, .. },
+                Dialog::ConfirmSignal { choice, .. }
+                | Dialog::ConfirmService { choice, .. }
+                | Dialog::ConfirmResetSettings { choice, .. }
+                | Dialog::ConfirmCompleteOnboarding { choice, .. },
             ) = state.dialog.as_mut()
             {
                 *choice = choice.toggle();
@@ -467,6 +585,31 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                             start_time,
                         });
                     }
+                    Dialog::ConfirmResetSettings {
+                        choice: ConfirmChoice::Yes,
+                    } => {
+                        let path = state.config_path.clone();
+                        state.config = crate::config::Config::default();
+                        state.terminal_profile = state.config.terminal_profile;
+                        state.performance_profile = state.config.performance_profile;
+                        if let Err(e) = state.config.save_atomic(&path) {
+                            state.set_error(e);
+                        } else {
+                            state.set_success("settings reset to defaults");
+                        }
+                    }
+                    Dialog::ConfirmCompleteOnboarding {
+                        choice: ConfirmChoice::Yes,
+                    } => {
+                        state.config.onboarding_completed = true;
+                        state.onboarding_pending = false;
+                        if let Err(e) = state.config.save_atomic(&state.config_path.clone()) {
+                            state.set_error(e);
+                        } else {
+                            state.set_success("onboarding completed");
+                            state.screen = Screen::Dashboard;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -489,7 +632,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 state.searching = false;
             } else {
                 state.searching = false;
-                state.glossary_selected = 0;
+                state.glossary_vp.selected = 0;
                 state.dialog = Some(Dialog::Glossary);
             }
         }
@@ -503,7 +646,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         AppAction::AcknowledgeFinding => {
             let id = state
                 .visible_findings()
-                .get(state.finding_selected)
+                .get(state.finding_selected())
                 .map(|f| f.id.clone());
             if let Some(id) = id {
                 state.persist.acknowledge(&id);
@@ -514,7 +657,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         AppAction::FollowDiagnosticTarget => {
             let target = state
                 .visible_findings()
-                .get(state.finding_selected)
+                .get(state.finding_selected())
                 .and_then(|f| f.targets.first())
                 .cloned();
             if let Some(target) = target {
@@ -531,6 +674,67 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                         unit: state.log_unit.clone(),
                     });
                 }
+            }
+        }
+        AppAction::ToggleWallboard => {
+            state.wallboard = !state.wallboard;
+            state.config.wallboard_default = state.wallboard;
+            state.set_status(if state.wallboard {
+                "wallboard ON"
+            } else {
+                "wallboard OFF"
+            });
+        }
+        AppAction::OpenActionMenu
+        | AppAction::Inspect
+        | AppAction::ExportContext
+        | AppAction::ActivateMenu
+        | AppAction::MenuSelect
+        | AppAction::ToggleProcessFollow
+        | AppAction::ToggleProcessTree
+        | AppAction::CompleteOnboarding
+        | AppAction::SaveSettings
+        | AppAction::CycleTerminalProfile
+        | AppAction::CyclePerformanceProfile
+        | AppAction::ToggleConfigBool(_)
+        | AppAction::ResetSettings => {
+            if let Some(extra) = crate::app::inspect_actions::apply_inspect_action(state, &action) {
+                effects.extend(extra);
+            }
+        }
+        AppAction::CleanupReportsNow => {
+            effects.push(SideEffect::CleanupReports);
+        }
+        AppAction::CycleLogPreset => {
+            state.log_preset = state.log_preset.next();
+            if state.log_preset == crate::model::LogPreset::Important {
+                state.log_min_priority = crate::model::LogPriority::Warning;
+            }
+            state.logs.clear();
+            state.set_status(format!("log preset: {}", state.log_preset.label()));
+            effects.push(SideEffect::RefreshLogs {
+                unit: state.log_unit.clone(),
+            });
+        }
+        AppAction::CycleStorageTab => {
+            state.storage_tab = state.storage_tab.next();
+            state.storage_vp = crate::ui::viewport::ViewportState::new();
+            state.set_status(format!("storage tab: {}", state.storage_tab.label()));
+        }
+        AppAction::DeepDiagnostics => {
+            state.diagnostic_deep = true;
+            state.set_status("deep diagnostics requested");
+            effects.push(SideEffect::RefreshDiagnostics);
+        }
+        AppAction::SettingsMove => {}
+        AppAction::SignalStop => {
+            if let Some(e) = maybe_confirm_signal(state, ProcessSignal::Stop) {
+                effects.push(e);
+            }
+        }
+        AppAction::SignalCont => {
+            if let Some(e) = maybe_confirm_signal(state, ProcessSignal::Cont) {
+                effects.push(e);
             }
         }
         AppAction::ExecuteSignal {
@@ -606,15 +810,20 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
         }
         AppEvent::ProcessesUpdated(list) => {
             state.processes = list;
-            let selected_pid = state.process_selected_pid;
+            let selected_pid = state.process_follow_pid.or(state.process_selected_pid);
             let idx = {
                 let filtered = state.visible_processes();
                 preserve_selection(&filtered, selected_pid)
             };
-            state.process_selected = idx;
+            let vis = state.viewport_rows.max(1);
+            let len = state.visible_processes().len();
+            state.process_vp.set_selected(idx, len, vis);
             let filtered = state.visible_processes();
-            if let Some(p) = filtered.get(idx) {
+            if let Some(p) = filtered.get(state.process_vp.selected) {
                 state.process_selected_pid = Some(p.pid);
+            }
+            if state.process_tree_mode {
+                return vec![SideEffect::FetchPpidMap];
             }
             Vec::new()
         }
@@ -627,9 +836,9 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
                 state.service_filter
             };
             let filtered = filter_services(&state.services, state.current_search(), filter);
-            state.service_selected =
+            state.service_vp.selected =
                 preserve_service_selection(&filtered, state.service_selected_unit.as_deref());
-            if let Some(s) = filtered.get(state.service_selected) {
+            if let Some(s) = filtered.get(state.service_selected()) {
                 state.service_selected_unit = Some(s.unit.clone());
                 return vec![SideEffect::FetchServiceDetails {
                     unit: s.unit.clone(),
@@ -638,19 +847,87 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             Vec::new()
         }
         AppEvent::ServiceDetails(info) => {
+            let unit = info.unit.clone();
             if let Some(slot) = state.services.iter_mut().find(|s| s.unit == info.unit) {
-                *slot = info;
+                *slot = info.clone();
+            }
+            let logs: Vec<_> = state
+                .logs
+                .filtered_preset(
+                    "",
+                    crate::model::LogPriority::Debug,
+                    crate::model::LogPreset::SelectedService,
+                    Some(&unit),
+                )
+                .into_iter()
+                .take(10)
+                .cloned()
+                .collect();
+            state.service_recent_logs = logs.clone();
+            let bundle = crate::model::ServiceInspectBundle {
+                service: info,
+                recent_logs: logs,
+            };
+            if state.pending_service_inspect {
+                state.pending_service_inspect = false;
+                state.dialog = Some(Dialog::Inspector {
+                    title: format!("Service {}", bundle.service.unit),
+                    body: bundle.format_body(),
+                });
             }
             Vec::new()
         }
+        AppEvent::ProcessDetails(details) => {
+            let body = details.format_body();
+            let title = details
+                .info
+                .as_ref()
+                .map(|p| format!("Process {}", p.pid))
+                .unwrap_or_else(|| "Process".into());
+            state.process_details = Some(details);
+            state.dialog = Some(Dialog::Inspector { title, body });
+            Vec::new()
+        }
+        AppEvent::FilePreviewReady(prev) => {
+            let trunc = if prev.truncated { " (truncated)" } else { "" };
+            state.dialog = Some(Dialog::Inspector {
+                title: format!("Preview {}{trunc}", prev.path),
+                body: prev.text.clone(),
+            });
+            state.file_preview = Some(prev);
+            Vec::new()
+        }
+        AppEvent::PpidMap(map) => {
+            state.process_ppids = map;
+            state.set_status(format!(
+                "tree parents ready ({})",
+                state.process_ppids.len()
+            ));
+            Vec::new()
+        }
         AppEvent::LogsUpdated(entries) => {
+            if let Some(unit) = &state.service_selected_unit {
+                let extra: Vec<_> = entries
+                    .iter()
+                    .filter(|e| e.unit.eq_ignore_ascii_case(unit))
+                    .cloned()
+                    .collect();
+                state.service_recent_logs.extend(extra);
+                if state.service_recent_logs.len() > 20 {
+                    let drain = state.service_recent_logs.len() - 20;
+                    state.service_recent_logs.drain(0..drain);
+                }
+            }
             state.logs.extend(entries);
             if state.log_follow {
-                let filtered = state
-                    .logs
-                    .filtered(state.current_search(), state.log_min_priority);
+                let filtered = state.logs.filtered_preset(
+                    state.current_search(),
+                    state.log_min_priority,
+                    state.log_preset,
+                    state.log_unit.as_deref(),
+                );
                 if !filtered.is_empty() {
-                    state.log_selected = filtered.len().saturating_sub(1);
+                    state.log_vp.selected = filtered.len().saturating_sub(1);
                 }
             }
             Vec::new()
@@ -695,8 +972,8 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             };
             state.persist.touch_diagnostic_now();
             state.save_persist();
-            if state.finding_selected >= state.findings.len() {
-                state.finding_selected = state.findings.len().saturating_sub(1);
+            if state.finding_selected() >= state.findings.len() {
+                state.finding_vp.selected = state.findings.len().saturating_sub(1);
             }
             if !probes_degraded.is_empty() {
                 state.set_status(format!(
@@ -715,7 +992,10 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
         }
         AppEvent::OperationFinished(op) => {
             match op {
-                OperationResult::Success(msg) => state.set_status(msg),
+                OperationResult::Success(msg) => {
+                    state.push_activity(msg.clone());
+                    state.set_success(msg);
+                }
                 OperationResult::Failure(err) => state.set_error(err),
             }
             vec![SideEffect::RefreshProcesses, SideEffect::RefreshServices]
@@ -736,7 +1016,13 @@ fn list_len(state: &AppState) -> usize {
         return crate::glossary::filtered_terms(state.screen, state.current_search()).len();
     }
     match state.screen {
-        Screen::Processes => state.visible_processes().len(),
+        Screen::Processes => {
+            if state.process_tree_mode && !state.process_ppids.is_empty() {
+                crate::model::build_process_tree(&state.processes, &state.process_ppids).len()
+            } else {
+                state.visible_processes().len()
+            }
+        }
         Screen::Services => {
             let filter = if state.failed_only {
                 ServiceFilter::Failed
@@ -747,62 +1033,111 @@ fn list_len(state: &AppState) -> usize {
         }
         Screen::Logs => state
             .logs
-            .filtered(state.current_search(), state.log_min_priority)
+            .filtered_preset(
+                state.current_search(),
+                state.log_min_priority,
+                state.log_preset,
+                state.log_unit.as_deref(),
+            )
             .len(),
-        Screen::Storage => state.visible_storage_children().len(),
+        Screen::Storage => match state.storage_tab {
+            crate::model::StorageTab::DirectoryUsage => state.visible_storage_children().len(),
+            crate::model::StorageTab::Mounts => state.metrics.disks.len(),
+            crate::model::StorageTab::LargestFiles => state
+                .storage_tree
+                .as_ref()
+                .map(|t| crate::preview::largest_files_from_tree(&t.root, 50).len())
+                .unwrap_or(0),
+        },
         Screen::Diagnostics => state.visible_findings().len(),
-        Screen::Dashboard => 0,
+        Screen::Dashboard | Screen::Settings => 0,
     }
 }
 
+fn visible_rows(state: &AppState) -> usize {
+    state.viewport_rows.max(1)
+}
+
 fn move_selection(state: &mut AppState, delta: i32) {
+    if let Some(Dialog::ActionMenu {
+        items, selected, ..
+    }) = state.dialog.as_mut()
+    {
+        if items.is_empty() {
+            return;
+        }
+        if delta < 0 {
+            *selected = selected.saturating_sub(1);
+        } else {
+            *selected = (*selected + 1).min(items.len() - 1);
+        }
+        return;
+    }
+    if state.screen == Screen::Settings && !state.glossary_open() {
+        let len = crate::ui::settings::SECTIONS.len();
+        if len == 0 {
+            return;
+        }
+        if delta < 0 {
+            state.settings_section = state.settings_section.saturating_sub(1);
+        } else {
+            state.settings_section = (state.settings_section + 1).min(len - 1);
+        }
+        return;
+    }
     let len = list_len(state);
     if len == 0 {
         return;
     }
-    let cur = current_selection(state);
-    let next = if delta < 0 {
-        cur.saturating_sub((-delta) as usize)
+    let vis = visible_rows(state);
+    let vp = current_vp_mut(state);
+    if delta <= -10 {
+        vp.page_up(len, vis);
+    } else if delta >= 10 {
+        vp.page_down(len, vis);
+    } else if delta < 0 {
+        for _ in 0..((-delta) as usize) {
+            vp.move_up(len, vis);
+        }
     } else {
-        (cur + delta as usize).min(len - 1)
-    };
-    set_selection(state, next);
+        for _ in 0..(delta as usize) {
+            vp.move_down(len, vis);
+        }
+    }
+    sync_selection_identity(state);
 }
 
-fn current_selection(state: &AppState) -> usize {
+fn current_vp_mut(state: &mut AppState) -> &mut crate::ui::viewport::ViewportState {
     if state.glossary_open() {
-        return state.glossary_selected;
+        return &mut state.glossary_vp;
     }
     match state.screen {
-        Screen::Processes => state.process_selected,
-        Screen::Services => state.service_selected,
-        Screen::Logs => state.log_selected,
-        Screen::Storage => state.storage_selected,
-        Screen::Diagnostics => state.finding_selected,
-        Screen::Dashboard => 0,
+        Screen::Processes => &mut state.process_vp,
+        Screen::Services => &mut state.service_vp,
+        Screen::Logs => &mut state.log_vp,
+        Screen::Storage => &mut state.storage_vp,
+        Screen::Diagnostics => &mut state.finding_vp,
+        Screen::Dashboard | Screen::Settings => &mut state.process_vp, // unused
     }
 }
 
-fn set_selection(state: &mut AppState, idx: usize) {
-    let len = list_len(state);
-    let idx = if len == 0 { 0 } else { idx.min(len - 1) };
-    if state.glossary_open() {
-        state.glossary_selected = idx;
-        return;
-    }
+fn sync_selection_identity(state: &mut AppState) {
     match state.screen {
         Screen::Processes => {
-            state.process_selected = idx;
-            let pid = {
-                let filtered = state.visible_processes();
-                filtered.get(idx).map(|p| p.pid)
+            let idx = state.process_vp.selected;
+            let pid = if state.process_tree_mode && !state.process_ppids.is_empty() {
+                crate::model::build_process_tree(&state.processes, &state.process_ppids)
+                    .get(idx)
+                    .map(|(p, _, _)| *p)
+            } else {
+                state.visible_processes().get(idx).map(|p| p.pid)
             };
             if let Some(pid) = pid {
                 state.process_selected_pid = Some(pid);
             }
         }
         Screen::Services => {
-            state.service_selected = idx;
+            let idx = state.service_vp.selected;
             let filter = if state.failed_only {
                 ServiceFilter::Failed
             } else {
@@ -813,21 +1148,25 @@ fn set_selection(state: &mut AppState, idx: usize) {
                 state.service_selected_unit = Some(s.unit.clone());
             }
         }
-        Screen::Logs => state.log_selected = idx,
-        Screen::Storage => state.storage_selected = idx,
-        Screen::Diagnostics => state.finding_selected = idx,
-        Screen::Dashboard => {}
+        _ => {}
     }
+}
+
+fn set_selection(state: &mut AppState, idx: usize) {
+    let len = list_len(state);
+    let vis = visible_rows(state);
+    let vp = current_vp_mut(state);
+    vp.set_selected(idx, len, vis);
+    sync_selection_identity(state);
 }
 
 fn clamp_selection_to_visible(state: &mut AppState) {
     let len = list_len(state);
-    let idx = if len == 0 {
-        0
-    } else {
-        current_selection(state).min(len - 1)
-    };
-    set_selection(state, idx);
+    let vis = visible_rows(state);
+    let vp = current_vp_mut(state);
+    vp.clamp_to_len(len);
+    vp.ensure_visible(len, vis);
+    sync_selection_identity(state);
 }
 
 fn selected_service_unit(state: &AppState) -> Option<String> {
@@ -837,36 +1176,49 @@ fn selected_service_unit(state: &AppState) -> Option<String> {
         state.service_filter
     };
     let filtered = filter_services(&state.services, state.current_search(), filter);
-    filtered.get(state.service_selected).map(|s| s.unit.clone())
+    filtered
+        .get(state.service_selected())
+        .map(|s| s.unit.clone())
 }
 
 fn selected_process_info(state: &AppState) -> Option<ProcessInfo> {
+    if let Some(pid) = state.process_selected_pid {
+        if let Some(p) = state.processes.iter().find(|p| p.pid == pid) {
+            return Some(p.clone());
+        }
+    }
     state
         .visible_processes()
-        .get(state.process_selected)
+        .get(state.process_selected())
         .map(|p| (*p).clone())
 }
 
-fn maybe_confirm_signal(state: &mut AppState, signal: ProcessSignal) {
+fn maybe_confirm_signal(state: &mut AppState, signal: ProcessSignal) -> Option<SideEffect> {
     if state.read_only {
         state.set_status("READ ONLY: signals disabled");
-        return;
+        return None;
     }
-    let Some(proc_) = selected_process_info(state) else {
-        return;
-    };
+    let proc_ = selected_process_info(state)?;
     if is_protected_pid(proc_.pid, std::process::id()) {
         state.set_status(format!(
             "refusing {}: protected PID {}",
             signal.label(),
             proc_.pid
         ));
-        return;
+        return None;
     }
-    let _ = match signal {
+    let need_confirm = match signal {
         ProcessSignal::Term => state.config.confirm_sigterm,
         ProcessSignal::Kill => state.config.confirm_sigkill,
+        ProcessSignal::Stop | ProcessSignal::Cont => true,
     };
+    if !need_confirm {
+        return Some(SideEffect::SendSignal {
+            pid: proc_.pid,
+            signal,
+            start_time: proc_.start_time,
+        });
+    }
     state.dialog = Some(Dialog::ConfirmSignal {
         pid: proc_.pid,
         user: proc_.user.clone(),
@@ -875,28 +1227,30 @@ fn maybe_confirm_signal(state: &mut AppState, signal: ProcessSignal) {
         start_time: proc_.start_time,
         choice: ConfirmChoice::Cancel,
     });
+    None
 }
 
-fn maybe_confirm_service(state: &mut AppState, action: ServiceActionKind) {
+fn maybe_confirm_service(state: &mut AppState, action: ServiceActionKind) -> Option<SideEffect> {
     if state.read_only {
         state.set_status("READ ONLY: service actions disabled");
-        return;
+        return None;
     }
-    let Some(unit) = selected_service_unit(state) else {
-        return;
-    };
-    let _ = state.config.confirm_service_actions;
+    let unit = selected_service_unit(state)?;
+    if !state.config.confirm_service_actions {
+        return Some(SideEffect::ServiceAction { unit, action });
+    }
     state.dialog = Some(Dialog::ConfirmService {
         unit,
         action,
         choice: ConfirmChoice::Cancel,
     });
+    None
 }
 
 fn enter_storage_dir(state: &mut AppState) {
     let name = {
         let children = state.visible_storage_children();
-        let child = match children.get(state.storage_selected) {
+        let child = match children.get(state.storage_selected()) {
             Some(c) => c,
             None => return,
         };
@@ -906,7 +1260,7 @@ fn enter_storage_dir(state: &mut AppState) {
         child.name.clone()
     };
     state.storage_cwd.push(name);
-    state.storage_selected = 0;
+    state.storage_vp.selected = 0;
 }
 
 fn step_log_match(state: &mut AppState, forward: bool) {
@@ -918,7 +1272,7 @@ fn step_log_match(state: &mut AppState, forward: bool) {
     if filtered.is_empty() {
         return;
     }
-    let cur = state.log_match_idx.unwrap_or(state.log_selected);
+    let cur = state.log_match_idx.unwrap_or(state.log_selected());
     let next = if forward {
         (cur + 1) % filtered.len()
     } else if cur == 0 {
@@ -927,7 +1281,7 @@ fn step_log_match(state: &mut AppState, forward: bool) {
         cur - 1
     };
     state.log_match_idx = Some(next);
-    state.log_selected = next;
+    state.log_vp.selected = next;
 }
 
 #[cfg(test)]
@@ -958,7 +1312,7 @@ mod tests {
             name: "x".into(),
             cmd: "x".into(),
             cpu: 1.0,
-            mem_pct: 1.0,
+            mem_pct: Some(1.0),
             mem_bytes: 1,
             state: "R".into(),
             run_time_secs: 1,
@@ -987,7 +1341,7 @@ mod tests {
             name: "x".into(),
             cmd: "x".into(),
             cpu: 1.0,
-            mem_pct: 1.0,
+            mem_pct: Some(1.0),
             mem_bytes: 1,
             state: "R".into(),
             run_time_secs: 1,
@@ -1013,7 +1367,7 @@ mod tests {
                 name: "low".into(),
                 cmd: "low".into(),
                 cpu: 1.0,
-                mem_pct: 1.0,
+                mem_pct: Some(1.0),
                 mem_bytes: 1,
                 state: "S".into(),
                 run_time_secs: 1,
@@ -1025,7 +1379,7 @@ mod tests {
                 name: "high".into(),
                 cmd: "high".into(),
                 cpu: 90.0,
-                mem_pct: 1.0,
+                mem_pct: Some(1.0),
                 mem_bytes: 1,
                 state: "R".into(),
                 run_time_secs: 1,
@@ -1062,7 +1416,7 @@ mod tests {
                 name: "nginx".into(),
                 cmd: "nginx".into(),
                 cpu: 1.0,
-                mem_pct: 1.0,
+                mem_pct: Some(1.0),
                 mem_bytes: 1,
                 state: "S".into(),
                 run_time_secs: 1,
@@ -1074,7 +1428,7 @@ mod tests {
                 name: "sshd".into(),
                 cmd: "sshd".into(),
                 cpu: 1.0,
-                mem_pct: 1.0,
+                mem_pct: Some(1.0),
                 mem_bytes: 1,
                 state: "S".into(),
                 run_time_secs: 1,

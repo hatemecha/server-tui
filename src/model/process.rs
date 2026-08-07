@@ -6,6 +6,8 @@ use std::cmp::Ordering;
 pub enum ProcessSignal {
     Term,
     Kill,
+    Stop,
+    Cont,
 }
 
 impl ProcessSignal {
@@ -13,6 +15,8 @@ impl ProcessSignal {
         match self {
             Self::Term => nix::sys::signal::Signal::SIGTERM,
             Self::Kill => nix::sys::signal::Signal::SIGKILL,
+            Self::Stop => nix::sys::signal::Signal::SIGSTOP,
+            Self::Cont => nix::sys::signal::Signal::SIGCONT,
         }
     }
 
@@ -20,6 +24,8 @@ impl ProcessSignal {
         match self {
             Self::Term => "SIGTERM",
             Self::Kill => "SIGKILL",
+            Self::Stop => "SIGSTOP",
+            Self::Cont => "SIGCONT",
         }
     }
 }
@@ -60,12 +66,36 @@ pub struct ProcessInfo {
     pub name: String,
     pub cmd: String,
     pub cpu: f32,
-    pub mem_pct: f32,
+    /// Memory percentage of system RAM, or `None` when total memory is unknown.
+    pub mem_pct: Option<f32>,
     pub mem_bytes: u64,
     pub state: String,
     pub run_time_secs: u64,
     /// Process start time (unix seconds). Used to resist PID reuse on signal confirm.
     pub start_time: u64,
+}
+
+/// Compute process memory percentage. Returns `None` when total is zero/unknown.
+///
+/// Never hides unknown totals behind `max(1)` — callers must show `?` instead.
+pub fn compute_memory_percentage(mem_bytes: u64, total_memory: u64) -> Option<f32> {
+    if total_memory == 0 {
+        return None;
+    }
+    // Avoid overflow on huge process RSS claims.
+    let pct = (mem_bytes as f64 / total_memory as f64) * 100.0;
+    if !pct.is_finite() {
+        return None;
+    }
+    Some(pct as f32)
+}
+
+/// Format MEM% for UI (`12.3` or `?`).
+pub fn format_mem_pct(mem_pct: Option<f32>) -> String {
+    match mem_pct {
+        Some(v) => format!("{v:.1}"),
+        None => "?".into(),
+    }
 }
 
 pub fn filter_processes<'a>(items: &'a [ProcessInfo], query: &str) -> Vec<&'a ProcessInfo> {
@@ -106,11 +136,15 @@ pub fn sort_processes(items: &mut [&ProcessInfo], sort: ProcessSort) {
             .partial_cmp(&a.cpu)
             .unwrap_or(Ordering::Equal)
             .then_with(|| a.pid.cmp(&b.pid)),
-        ProcessSort::Memory => b
-            .mem_pct
-            .partial_cmp(&a.mem_pct)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.pid.cmp(&b.pid)),
+        ProcessSort::Memory => match (a.mem_pct, b.mem_pct) {
+            (Some(am), Some(bm)) => bm
+                .partial_cmp(&am)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.pid.cmp(&b.pid)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => a.pid.cmp(&b.pid),
+        },
         ProcessSort::Pid => a.pid.cmp(&b.pid),
         ProcessSort::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
@@ -145,7 +179,7 @@ mod tests {
                 name: "alpha".into(),
                 cmd: "/usr/bin/alpha".into(),
                 cpu: 1.0,
-                mem_pct: 5.0,
+                mem_pct: Some(5.0),
                 mem_bytes: 1000,
                 state: "S".into(),
                 run_time_secs: 10,
@@ -157,13 +191,35 @@ mod tests {
                 name: "beta".into(),
                 cmd: "beta --flag".into(),
                 cpu: 20.0,
-                mem_pct: 1.0,
+                mem_pct: Some(1.0),
                 mem_bytes: 500,
                 state: "R".into(),
                 run_time_secs: 5,
                 start_time: 2000,
             },
         ]
+    }
+
+    #[test]
+    fn compute_memory_percentage_normal() {
+        assert_eq!(compute_memory_percentage(512, 1024), Some(50.0));
+    }
+
+    #[test]
+    fn compute_memory_percentage_zero_total() {
+        assert_eq!(compute_memory_percentage(100, 0), None);
+    }
+
+    #[test]
+    fn compute_memory_percentage_large_process() {
+        let pct = compute_memory_percentage(u64::MAX / 2, u64::MAX).expect("pct");
+        assert!(pct > 40.0 && pct < 60.0);
+    }
+
+    #[test]
+    fn format_unknown_mem() {
+        assert_eq!(format_mem_pct(None), "?");
+        assert_eq!(format_mem_pct(Some(12.34)), "12.3");
     }
 
     #[test]

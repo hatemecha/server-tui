@@ -15,7 +15,7 @@ use tracing_subscriber::EnvFilter;
 use server_tui::app::event::{AppEvent, OperationResult};
 use server_tui::app::state::AppState;
 use server_tui::app::update::{apply_event, SideEffect};
-use server_tui::cli::{Cli, Commands};
+use server_tui::cli::{Cli, Commands, SupportArgs};
 use server_tui::config::{expand_tilde, Config};
 use server_tui::diagnostics::{compute_health_status, evaluate, format_text_report};
 use server_tui::doctor::run_doctor;
@@ -23,6 +23,7 @@ use server_tui::error::AppError;
 use server_tui::providers::demo::DemoProviders;
 use server_tui::providers::linux::linux_bundle;
 use server_tui::providers::ProviderBundle;
+use server_tui::support::{build_report, render, save_report};
 use server_tui::terminal::TerminalGuard;
 use server_tui::ui;
 use server_tui::{APP_NAME, APP_VERSION};
@@ -30,9 +31,33 @@ use server_tui::{APP_NAME, APP_VERSION};
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    if let Some(Commands::Doctor(args)) = cli.command.clone() {
-        let code = run_doctor(args).await;
-        std::process::exit(i32::from(code));
+    match cli.command.clone() {
+        Some(Commands::Doctor(args)) => {
+            let code = run_doctor(args).await;
+            std::process::exit(i32::from(code));
+        }
+        Some(Commands::Support(args)) => {
+            let code = run_support_cli(args).await;
+            std::process::exit(code);
+        }
+        Some(Commands::Setup { command }) => {
+            let code = match command {
+                server_tui::cli::SetupCommands::Console {
+                    status,
+                    install,
+                    remove,
+                    tty,
+                    user,
+                    wallboard,
+                    read_only,
+                    print_unit,
+                } => server_tui::cli::run_setup_console(
+                    status, install, remove, tty, user, wallboard, read_only, print_unit,
+                ),
+            };
+            std::process::exit(code);
+        }
+        None => {}
     }
 
     if let Err(err) = run(cli).await {
@@ -81,7 +106,33 @@ async fn run(cli: Cli) -> Result<(), AppError> {
         cli.ascii || !config.unicode,
         scan_path,
     );
-    if state.demo {
+    state.terminal_profile = cli
+        .terminal_profile
+        .unwrap_or(config.terminal_profile)
+        .resolve(color);
+    state.performance_profile = cli
+        .performance_profile
+        .unwrap_or(config.performance_profile);
+    state.wallboard = cli.wallboard || config.wallboard_default;
+    // Apply full performance profile scale (not only LowResource).
+    {
+        let scale = state.performance_profile.refresh_scale();
+        let base = config.refresh_ms.max(250);
+        state.config.refresh_ms = ((base as f64) * scale) as u64;
+        state.config.metric_history_size = state
+            .performance_profile
+            .history_size(config.metric_history_size);
+    }
+    if state.wallboard {
+        state.screen = server_tui::app::Screen::Dashboard;
+        state.set_status("WALLBOARD: dashboard mode (w to toggle)");
+    } else if !state.config.onboarding_completed {
+        state.onboarding_pending = true;
+        state.screen = server_tui::app::Screen::Settings;
+        state.set_status(
+            "First run: review Settings (7). Recommended: terminal auto, performance balanced, --read-only.",
+        );
+    } else if state.demo {
         state.set_status("DEMO mode: synthetic data only; host is not modified.");
     } else if state.read_only {
         state.set_status("READ ONLY: signals and systemd changes are disabled.");
@@ -95,6 +146,51 @@ async fn run(cli: Cli) -> Result<(), AppError> {
     let result = run_loop(&mut terminal, &mut state, providers, config).await;
     terminal.restore()?;
     result
+}
+
+async fn run_support_cli(args: SupportArgs) -> i32 {
+    let config = Config::default();
+    let providers = if args.demo {
+        DemoProviders::bundle(true)
+    } else {
+        linux_bundle(true, &config)
+    };
+    let metrics = providers.metrics.collect().await.unwrap_or_default();
+    let processes = providers.processes.list().await.unwrap_or_default();
+    let services = providers.services.list_services().await.unwrap_or_default();
+    let snap = providers.diagnostics.probe(true, true).await.ok();
+    let findings = snap.as_ref().map(evaluate).unwrap_or_default();
+    let health = snap
+        .as_ref()
+        .map(|s| compute_health_status(&findings, s.systemd_observable, s.journal_observable))
+        .unwrap_or(server_tui::model::HealthStatus::Unknown);
+    let report = build_report(
+        &metrics,
+        &findings,
+        &processes,
+        &services,
+        health,
+        args.demo,
+        true,
+        args.include_sensitive,
+    );
+    let fmt = args.format.into();
+    match render(&report, fmt) {
+        Ok(body) => match save_report(&body, fmt, args.output.as_deref()) {
+            Ok(path) => {
+                println!("{}", path.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("{}", e.user_message());
+                1
+            }
+        },
+        Err(e) => {
+            eprintln!("{}", e.user_message());
+            1
+        }
+    }
 }
 
 fn init_logging(path: Option<&PathBuf>) -> Result<(), AppError> {
@@ -212,6 +308,7 @@ async fn run_loop(
                                 &mut scan_cancel,
                                 &config,
                                 &tracker,
+                                terminal,
                             ).await;
                         }
                     }
@@ -239,6 +336,7 @@ async fn run_loop(
                             &mut scan_cancel,
                             &config,
                             &tracker,
+                            terminal,
                         ).await;
                     }
                     None => break,
@@ -344,6 +442,7 @@ async fn handle_effects(
     scan_cancel: &mut Option<CancellationToken>,
     config: &Config,
     tracker: &TaskTracker,
+    terminal: &mut TerminalGuard,
 ) {
     for effect in effects {
         match effect {
@@ -392,8 +491,9 @@ async fn handle_effects(
             SideEffect::RefreshLogs { unit } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
+                let preset = state.log_preset;
                 tracker.spawn(async move {
-                    match p.logs.recent(unit.as_deref(), 200).await {
+                    match p.logs.recent_preset(unit.as_deref(), 200, preset).await {
                         Ok(entries) => {
                             let _ = tx.send(AppEvent::LogsUpdated(entries)).await;
                         }
@@ -406,8 +506,10 @@ async fn handle_effects(
             SideEffect::RefreshDiagnostics => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
+                let deep = state.diagnostic_deep || !state.config.diagnostics_light_scan;
+                let enable_smart = state.config.enable_smart_probes;
                 tracker.spawn(async move {
-                    match p.diagnostics.probe().await {
+                    match p.diagnostics.probe(deep, enable_smart).await {
                         Ok(snap) => {
                             let findings = evaluate(&snap);
                             let health = compute_health_status(
@@ -549,18 +651,164 @@ async fn handle_effects(
                 });
             }
             SideEffect::ServiceAction { unit, action } => {
+                match providers.admin.service_action(&unit, action).await {
+                    Ok(()) => {
+                        state.set_success(format!("{} {} ok", action.label(), unit));
+                        state.push_activity(format!("{} {}", action.label(), unit));
+                    }
+                    Err(e)
+                        if providers.admin.permission_may_sudo(&e)
+                            && !state.demo
+                            && !state.read_only =>
+                    {
+                        state.set_warning(
+                            "D-Bus permission denied — trying sudo -n after interactive sudo -v",
+                        );
+                        // Fall through to typed sudo escalation
+                        if let Err(err) = escalate_sudo_systemctl(terminal, &unit, action).await {
+                            state.set_error(err);
+                        } else {
+                            state.set_success(format!("sudo {} {} ok", action.label(), unit));
+                            state.push_activity(format!("sudo {} {}", action.label(), unit));
+                        }
+                    }
+                    Err(e) => state.set_error(e),
+                }
+            }
+            SideEffect::SudoServiceAction { unit, action } => {
+                if let Err(err) = escalate_sudo_systemctl(terminal, &unit, action).await {
+                    state.set_error(err);
+                } else {
+                    state.set_success(format!("sudo {} {} ok", action.label(), unit));
+                }
+            }
+            SideEffect::FetchProcessDetails { pid } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
                 tracker.spawn(async move {
-                    let result = match p.admin.service_action(&unit, action).await {
-                        Ok(()) => {
-                            OperationResult::Success(format!("{} {} ok", action.label(), unit))
+                    match p.processes.details(pid).await {
+                        Ok(d) => {
+                            let _ = tx.send(AppEvent::ProcessDetails(d)).await;
                         }
-                        Err(e) => OperationResult::Failure(e),
-                    };
-                    let _ = tx.send(AppEvent::OperationFinished(result)).await;
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(e)).await;
+                        }
+                    }
                 });
+            }
+            SideEffect::FetchPpidMap => {
+                let pids: Vec<u32> = state.processes.iter().map(|p| p.pid).collect();
+                let demo = state.demo;
+                let tx = tx.clone();
+                tracker.spawn(async move {
+                    let map = if demo {
+                        // Synthetic parents for demo PIDs (no /proc).
+                        Ok(pids
+                            .into_iter()
+                            .map(|pid| {
+                                let ppid = if pid <= 2 { None } else { Some(1) };
+                                (pid, ppid)
+                            })
+                            .collect())
+                    } else {
+                        server_tui::providers::linux::processes::ppid_map(pids).await
+                    };
+                    match map {
+                        Ok(map) => {
+                            let _ = tx.send(AppEvent::PpidMap(map)).await;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::Error(e)).await;
+                        }
+                    }
+                });
+            }
+            SideEffect::PreviewFile { path } => {
+                let tx = tx.clone();
+                tracker.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        server_tui::preview::preview_file(&path)
+                    })
+                    .await;
+                    match result {
+                        Ok(Ok(prev)) => {
+                            let _ = tx.send(AppEvent::FilePreviewReady(prev)).await;
+                        }
+                        Ok(Err(e)) => {
+                            let _ = tx.send(AppEvent::Error(e)).await;
+                        }
+                        Err(e) => {
+                            let _ = tx
+                                .send(AppEvent::Error(server_tui::error::AppError::Internal(
+                                    e.to_string(),
+                                )))
+                                .await;
+                        }
+                    }
+                });
+            }
+            SideEffect::CleanupReports => {
+                let days = state.config.report_retention_days;
+                if days > 0 {
+                    let _ = cleanup_old_reports(days);
+                    state.set_status(format!("report cleanup (>={days}d)"));
+                }
             }
         }
     }
+}
+
+async fn escalate_sudo_systemctl(
+    terminal: &mut TerminalGuard,
+    unit: &str,
+    action: server_tui::model::ServiceActionKind,
+) -> Result<(), server_tui::error::AppError> {
+    use server_tui::actions::trusted::{resolve_trusted, run_sudo_systemctl, RealCommandRunner};
+    use std::io::{self, Write};
+    use std::process::Command;
+
+    terminal.leave_for_external()?;
+    println!();
+    println!("server-tui: elevated systemd action requested.");
+    println!("  unit:   {unit}");
+    println!("  action: {}", action.label());
+    println!("Running `sudo -v` (cached credentials). Ctrl+C to abort.");
+    let _ = io::stdout().flush();
+
+    let sudo = resolve_trusted("sudo")?;
+    let status = Command::new(&sudo).arg("-v").status().map_err(|e| {
+        server_tui::error::AppError::Permission(format!("sudo -v failed to start: {e}"))
+    })?;
+    if !status.success() {
+        let _ = terminal.reenter();
+        return Err(server_tui::error::AppError::Permission(
+            "sudo -v failed or was cancelled".into(),
+        ));
+    }
+
+    terminal.reenter()?;
+    run_sudo_systemctl(&RealCommandRunner, action.label(), unit)
+}
+
+fn cleanup_old_reports(days: u64) -> Result<(), server_tui::error::AppError> {
+    use std::time::{Duration, SystemTime};
+    let dir = server_tui::support::default_reports_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let cutoff = SystemTime::now() - Duration::from_secs(days.saturating_mul(86400));
+    for ent in
+        std::fs::read_dir(&dir).map_err(|e| server_tui::error::AppError::Internal(e.to_string()))?
+    {
+        let ent = ent.map_err(|e| server_tui::error::AppError::Internal(e.to_string()))?;
+        let meta = ent.metadata().ok();
+        let old = meta
+            .and_then(|m| m.modified().ok())
+            .map(|m| m < cutoff)
+            .unwrap_or(false);
+        if old {
+            let _ = std::fs::remove_file(ent.path());
+        }
+    }
+    Ok(())
 }

@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::AppError;
 use crate::model::{
-    aggregate_sizes, default_exclusions, DiagnosticSnapshot, DiskUsage, LogEntry, LogPriority,
-    ProcessInfo, ProcessSignal, ServiceActionKind, ServiceInfo, StorageNode, StorageProgress,
-    StorageTree, SystemMetrics, TemperatureReading, UnitFileState, UnitRegistry,
+    aggregate_sizes, default_exclusions, DiagnosticSnapshot, DiskUsage, LogEntry, LogPreset,
+    LogPriority, ProcessInfo, ProcessSignal, ServiceActionKind, ServiceInfo, StorageNode,
+    StorageProgress, StorageTree, SystemMetrics, TemperatureReading, UnitFileState, UnitRegistry,
 };
 use crate::providers::linux::diagnostics::demo_datasets::DemoDataset;
 use crate::providers::traits::{
@@ -110,7 +110,7 @@ impl ProcessProvider for DemoProcesses {
                 name: "systemd".into(),
                 cmd: "/sbin/init".into(),
                 cpu: 0.1,
-                mem_pct: 0.5,
+                mem_pct: Some(0.5),
                 mem_bytes: 20_000_000,
                 state: "S".into(),
                 run_time_secs: 86400,
@@ -122,7 +122,7 @@ impl ProcessProvider for DemoProcesses {
                 name: "test-worker".into(),
                 cmd: "test-worker --demo".into(),
                 cpu: 12.5 + (t % 10) as f32,
-                mem_pct: 3.2,
+                mem_pct: Some(3.2),
                 mem_bytes: 120_000_000,
                 state: "R".into(),
                 run_time_secs: 420,
@@ -134,7 +134,7 @@ impl ProcessProvider for DemoProcesses {
                 name: "nginx".into(),
                 cmd: "nginx: worker process".into(),
                 cpu: 1.2,
-                mem_pct: 1.1,
+                mem_pct: Some(1.1),
                 mem_bytes: 40_000_000,
                 state: "S".into(),
                 run_time_secs: 3600,
@@ -146,13 +146,37 @@ impl ProcessProvider for DemoProcesses {
                 name: "server-tui".into(),
                 cmd: "server-tui --demo".into(),
                 cpu: 2.0,
-                mem_pct: 0.8,
+                mem_pct: Some(0.8),
                 mem_bytes: 30_000_000,
                 state: "R".into(),
                 run_time_secs: 60,
                 start_time: 4_000,
             },
         ])
+    }
+
+    async fn details(&self, pid: u32) -> Result<crate::model::ProcessDetails, AppError> {
+        let list = self.list().await?;
+        let info = list.into_iter().find(|p| p.pid == pid);
+        let parent = match pid {
+            4821 | 9001 | 4242 => Some(1001),
+            _ => None,
+        };
+        Ok(crate::model::ProcessDetails {
+            info: info.clone(),
+            parent_pid: parent,
+            parent_name: parent.map(|_| "systemd".into()),
+            cmdline: info.as_ref().map(|p| p.cmd.clone()).unwrap_or_default(),
+            cgroup: Some(format!("0::/system.slice/demo-{pid}.scope")),
+            unit: if pid == 9001 {
+                Some("nginx.service".into())
+            } else {
+                None
+            },
+            fd_count: Some(12),
+            read_bytes: Some(1_024_000),
+            write_bytes: Some(512_000),
+        })
     }
 }
 
@@ -235,6 +259,15 @@ struct DemoLogs;
 #[async_trait]
 impl LogProvider for DemoLogs {
     async fn recent(&self, unit: Option<&str>, lines: usize) -> Result<Vec<LogEntry>, AppError> {
+        self.recent_preset(unit, lines, LogPreset::All).await
+    }
+
+    async fn recent_preset(
+        &self,
+        unit: Option<&str>,
+        lines: usize,
+        preset: LogPreset,
+    ) -> Result<Vec<LogEntry>, AppError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -249,9 +282,16 @@ impl LogProvider for DemoLogs {
             } else {
                 LogPriority::Info
             };
+            let uname = if matches!(preset, LogPreset::Kernel) && i % 3 == 0 {
+                "kernel".into()
+            } else {
+                unit_name.clone()
+            };
+            // Store realtime-ish µs for LastHour filter compatibility.
+            let ts_us = now.saturating_sub((lines - i) as u64) * 1_000_000;
             out.push(LogEntry {
-                timestamp: format!("{}", now.saturating_sub((lines - i) as u64)),
-                unit: unit_name.clone(),
+                timestamp: format!("{ts_us}"),
+                unit: uname,
                 pid: Some(1000 + i as u32),
                 priority: prio,
                 message: format!("Demo log line {i} for {unit_name}"),
@@ -403,7 +443,8 @@ struct DemoDiagnostics;
 
 #[async_trait]
 impl DiagnosticProbeProvider for DemoDiagnostics {
-    async fn probe(&self) -> Result<DiagnosticSnapshot, AppError> {
+    async fn probe(&self, deep: bool, enable_smart: bool) -> Result<DiagnosticSnapshot, AppError> {
+        let _ = (deep, enable_smart);
         // Cycle datasets slowly so demo UI shows variety.
         let dataset = DemoDataset::from_tick(tick() / 3);
         Ok(dataset.build())

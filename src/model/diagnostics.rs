@@ -96,6 +96,8 @@ pub enum Category {
     CoreDump,
     Pressure,
     Config,
+    Hardware,
+    Kernel,
     Other,
 }
 
@@ -112,6 +114,8 @@ impl Category {
             Self::CoreDump => "coredump",
             Self::Pressure => "pressure",
             Self::Config => "config",
+            Self::Hardware => "hardware",
+            Self::Kernel => "kernel",
             Self::Other => "other",
         }
     }
@@ -225,9 +229,21 @@ pub struct DiagnosticSnapshot {
     pub temperatures: Vec<TempSnapshot>,
     pub clock_sync: Option<ClockSyncSnapshot>,
     pub etc_mtime_notable: Vec<EtcMetaChange>,
+    pub smart_disks: Vec<SmartDiskSnapshot>,
     pub systemd_observable: bool,
     pub journal_observable: bool,
     pub probes_degraded: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SmartDiskSnapshot {
+    pub device: String,
+    pub available: bool,
+    pub passed: Option<bool>,
+    pub uda_crc_error_count: Option<u64>,
+    pub prev_uda_crc_error_count: Option<u64>,
+    pub summary: String,
+    pub details: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,21 +1,22 @@
-//! Modal dialogs: help, glossary, confirmations, messages.
+//! Modal dialogs: help, glossary, confirmations, inspectors, action menus.
 
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 
 use crate::app::action::ConfirmChoice;
 use crate::app::state::{AppState, Dialog};
 use crate::glossary;
 use crate::model::ProcessSignal;
 use crate::ui::help;
+use crate::ui::selection::{marker_for, selected_row_style};
 use crate::ui::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
     let Some(dialog) = &state.dialog else {
         return;
     };
-    let theme = Theme::new(state.color);
-    let area = centered_rect(72, 72, frame.area());
+    let theme = state.theme();
+    let area = centered_rect(78, 78, frame.area());
     Clear.render(area, frame.buffer_mut());
 
     match dialog {
@@ -59,11 +60,65 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
             );
             draw_box(frame, area, theme, "Confirm service action", &body);
         }
+        Dialog::ConfirmResetSettings { choice } | Dialog::ConfirmCompleteOnboarding { choice } => {
+            let (title, msg) = match dialog {
+                Dialog::ConfirmResetSettings { .. } => (
+                    "Reset settings",
+                    "Reset all settings to defaults and write config.toml?",
+                ),
+                _ => (
+                    "Complete onboarding",
+                    "Mark onboarding complete and save config?",
+                ),
+            };
+            let body = format!("{msg}\n\n{}", confirm_buttons(*choice));
+            draw_box(frame, area, theme, title, &body);
+        }
         Dialog::DiagnosticReport { body } => {
             draw_box(frame, area, theme, "Diagnostic report (redacted)", body);
         }
         Dialog::Message { title, body } => {
             draw_box(frame, area, theme, title, body);
+        }
+        Dialog::Inspector { title, body } => {
+            draw_box(frame, area, theme, title, body);
+        }
+        Dialog::ActionMenu {
+            title,
+            items,
+            selected,
+        } => {
+            let list_items: Vec<ListItem> = items
+                .iter()
+                .enumerate()
+                .map(|(i, it)| {
+                    let mark = marker_for(i == *selected);
+                    let label = if it.enabled {
+                        format!("{mark} {}", it.label)
+                    } else {
+                        format!(
+                            "{mark} {} — {}",
+                            it.label,
+                            it.disabled_reason.as_deref().unwrap_or("disabled")
+                        )
+                    };
+                    let style = if i == *selected {
+                        selected_row_style(theme)
+                    } else if it.enabled {
+                        theme.normal()
+                    } else {
+                        theme.muted()
+                    };
+                    ListItem::new(label).style(style)
+                })
+                .collect();
+            let list = List::new(list_items).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title.as_str())
+                    .border_style(theme.warn()),
+            );
+            frame.render_widget(list, area);
         }
     }
 }
@@ -82,7 +137,7 @@ fn draw_box(frame: &mut Frame<'_>, area: Rect, theme: Theme, title: &str, body: 
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(title)
+                .title(title.to_string())
                 .border_style(theme.warn()),
         );
     frame.render_widget(p, area);

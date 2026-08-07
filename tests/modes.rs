@@ -60,7 +60,7 @@ fn confirmations_required_path_opens_dialog() {
         name: "test-worker".into(),
         cmd: "test-worker".into(),
         cpu: 1.0,
-        mem_pct: 1.0,
+        mem_pct: Some(1.0),
         mem_bytes: 1,
         state: "R".into(),
         run_time_secs: 1,

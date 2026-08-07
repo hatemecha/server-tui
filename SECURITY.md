@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | yes (best effort) |
+| 0.3.x   | yes (best effort) |
+| 0.2.x   | best effort (superseded) |
 | 0.1.x   | best effort (superseded) |
 
 This is early software. Security fixes are applied on a best-effort basis by the maintainer.
@@ -35,7 +36,7 @@ Pipeline: strip ANSI → replace control characters → `sanitize_path_display` 
 
 ## Command execution
 
-Allowed external programs (fixed argv, no shell): `journalctl`, `coredumpctl`, `timedatectl` (optional/best-effort). Signals via `nix` `kill`. Systemd via zbus.
+Allowed external programs (fixed argv, no shell): `journalctl`, `coredumpctl`, `timedatectl`, optional `smartctl` (read-only `-H -A -l error`), trusted `sudo`/`systemctl` paths for typed elevation. Signals via `nix` `kill`. Systemd via zbus.
 
 Unit actions require: lexical `unit_looks_safe` **and** membership in the shared known-unit registry from the last list.
 
@@ -47,10 +48,16 @@ Never signal PID 0, 1, or self. SIGKILL success means the signal was **delivered
 - Actions fail closed with permission errors (systemd/D-Bus policy wording).
 - `--read-only` disables the administrative executor entirely.
 - Running as root amplifies impact; use least privilege.
+- If D-Bus denies a **known-unit** systemctl action, the TUI may offer interactive `sudo -v` then non-interactive `sudo -n systemctl …` with fixed argv (never free-form shell). User can cancel at `sudo -v`.
 
 ## Non-goals / hard bans
 
-No telemetry, listeners, password storage, setuid helpers, file deletion, automatic system configuration edits, auto updates, remote agents, or auto privilege escalation.
+No telemetry, listeners, password storage, setuid helpers, automatic system configuration edits from smoke/tests, auto updates, remote agents, or silent privilege escalation.
+
+Allowed exceptions (user-initiated):
+
+- Delete **only** aged files under the XDG reports directory when retention cleanup runs.
+- Library install/remove of a console unit (`ConsoleFsOps` / CLI guidance) — never from automated tests.
 
 ## Reporting a vulnerability
 
