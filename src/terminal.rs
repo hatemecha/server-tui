@@ -61,7 +61,13 @@ fn enter_inner() -> Result<TerminalGuard, AppError> {
     let _ = out.execute(EnableMouseCapture);
 
     let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend).map_err(|e| AppError::Terminal(e.to_string()))?;
+    let mut terminal = Terminal::new(backend).map_err(|e| AppError::Terminal(e.to_string()))?;
+    // Alternate-screen buffers often retain prior contents; without an explicit
+    // clear, ratatui's differential renderer leaves "empty" cells untouched and
+    // old shell scrollback shows through the UI (common over SSH / dumb TERM).
+    terminal
+        .clear()
+        .map_err(|e| AppError::Terminal(e.to_string()))?;
 
     TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
     install_panic_hook();
