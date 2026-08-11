@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
+use crate::actions::trusted::{run_trusted, run_trusted_optional, ExecutionPolicy, TrustedCommand};
 use crate::error::AppError;
 use crate::model::{LogEntry, LogPriority};
 use crate::providers::LogProvider;
@@ -50,41 +51,45 @@ impl LogProvider for LinuxLogProvider {
             }
         }
 
-        let mut cmd = Command::new("journalctl");
-        cmd.arg("--no-pager")
-            .arg("--output=json")
-            .arg(format!("--lines={lines}"))
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let lines_arg = format!("--lines={lines}");
+        let mut args: Vec<&str> = vec!["--no-pager", "--output=json", lines_arg.as_str()];
 
+        let unit_arg;
         match preset {
             crate::model::LogPreset::Important => {
-                cmd.arg("-p").arg("0..4");
-                cmd.arg("--boot=0");
+                args.push("-p");
+                args.push("0..4");
+                args.push("--boot=0");
             }
             crate::model::LogPreset::CurrentBoot => {
-                cmd.arg("--boot=0");
+                args.push("--boot=0");
             }
             crate::model::LogPreset::LastHour => {
-                cmd.arg("--since=-1h");
+                args.push("--since=-1h");
             }
             crate::model::LogPreset::Kernel => {
-                cmd.arg("--dmesg");
+                args.push("--dmesg");
             }
             crate::model::LogPreset::SelectedService | crate::model::LogPreset::All => {}
         }
 
         if let Some(u) = unit {
-            cmd.arg(format!("--unit={u}"));
+            unit_arg = format!("--unit={u}");
+            args.push(unit_arg.as_str());
         }
 
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| AppError::Journal(format!("failed to run journalctl: {e}")))?;
+        let output = run_trusted(
+            TrustedCommand::Journalctl,
+            &args,
+            ExecutionPolicy::journalctl(),
+        )
+        .await
+        .map_err(|e| match e {
+            AppError::Unsupported(m) => AppError::Journal(m),
+            other => other,
+        })?;
 
-        if !output.status.success() {
+        if !output.success {
             let err = String::from_utf8_lossy(&output.stderr);
             return Err(AppError::Journal(sanitize_text(&err)));
         }
@@ -93,14 +98,15 @@ impl LogProvider for LinuxLogProvider {
     }
 
     async fn is_available(&self) -> bool {
-        Command::new("journalctl")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map(|s| s.success())
-            .unwrap_or(false)
+        matches!(
+            run_trusted_optional(
+                TrustedCommand::Journalctl,
+                &["--version"],
+                ExecutionPolicy::probe()
+            )
+            .await,
+            Ok(Some(o)) if o.success
+        )
     }
 }
 
@@ -147,6 +153,7 @@ fn journal_to_entry(j: JournalJson) -> LogEntry {
 }
 
 /// Follow journalctl with cancellation. Caller must cancel and await join.
+/// No oneshot timeout — long-running stream with kill_on_drop + cancel.
 pub async fn follow_journal(
     unit: Option<String>,
     cancel: CancellationToken,
@@ -158,7 +165,11 @@ pub async fn follow_journal(
         }
     }
 
-    let mut cmd = Command::new("journalctl");
+    let journalctl = TrustedCommand::Journalctl
+        .resolve()
+        .map_err(|e| AppError::Journal(e.to_string()))?;
+
+    let mut cmd = Command::new(&journalctl);
     cmd.arg("--no-pager")
         .arg("--output=json")
         .arg("--follow")
@@ -241,5 +252,29 @@ not-json
         assert_eq!(entries[0].message, "hello");
         assert_eq!(entries[0].priority, LogPriority::Err);
         assert_eq!(entries[1].message, "world");
+    }
+
+    #[test]
+    fn malformed_around_valid_still_parses() {
+        let raw = br#"nope
+{"MESSAGE":"ok","PRIORITY":"6"}
+{"MESSAGE":
+{"MESSAGE":"also","PRIORITY":"4","_SYSTEMD_UNIT":"x.service"}
+"#;
+        let entries = parse_journal_stdout(raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].message, "ok");
+        assert_eq!(entries[1].message, "also");
+    }
+
+    #[tokio::test]
+    async fn follow_cancel_does_not_require_journald() {
+        // Invalid unit fails before spawn — exercises cancel/safe argv gate without journald.
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = tokio::sync::mpsc::channel(4);
+        let err = follow_journal(Some("bad unit".into()), cancel, tx)
+            .await
+            .expect_err("unsafe unit");
+        assert!(err.to_string().contains("invalid unit"));
     }
 }

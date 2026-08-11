@@ -149,7 +149,12 @@ async fn run_support_cli(args: SupportArgs) -> i32 {
     let metrics = providers.metrics.collect().await.unwrap_or_default();
     let processes = providers.processes.list().await.unwrap_or_default();
     let services = providers.services.list_services().await.unwrap_or_default();
-    let snap = providers.diagnostics.probe(true, true).await.ok();
+    // CLI demo: fixed mixed dataset (same as doctor --demo). TUI keeps tick cycling.
+    let snap = if args.demo {
+        Some(DemoProviders::cli_diagnostic_snapshot())
+    } else {
+        providers.diagnostics.probe(true, true).await.ok()
+    };
     let findings = snap.as_ref().map(evaluate).unwrap_or_default();
     let health = snap
         .as_ref()

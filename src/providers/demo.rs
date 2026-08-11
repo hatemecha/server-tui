@@ -52,6 +52,11 @@ impl DemoProviders {
             diagnostics: Box::new(DemoDiagnostics),
         }
     }
+
+    /// Fixed mixed diagnostic snapshot for one-shot CLI demos (not tick-cycled).
+    pub fn cli_diagnostic_snapshot() -> DiagnosticSnapshot {
+        DemoDataset::for_cli_demo().build()
+    }
 }
 
 struct DemoMetrics;

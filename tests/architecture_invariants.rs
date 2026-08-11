@@ -200,3 +200,40 @@ fn providers_must_not_write_state_toml() {
         "providers must not write persist state (found: {offenders:?})"
     );
 }
+
+#[test]
+fn external_commands_must_not_use_bare_binary_names() {
+    // Production code should resolve via TrustedCommand / resolve_trusted, not
+    // Command::new("journalctl") PATH lookups.
+    let banned = [
+        "Command::new(\"journalctl\")",
+        "Command::new(\"coredumpctl\")",
+        "Command::new(\"timedatectl\")",
+        "Command::new(\"smartctl\")",
+        "Command::new(\"sudo\")",
+        "Command::new(\"systemctl\")",
+        "Command::new(\"sh\")",
+        "Command::new(\"bash\")",
+    ];
+    let mut files = Vec::new();
+    walk_rs_files(std::path::Path::new("src"), &mut files);
+    let mut offenders = Vec::new();
+    for path in files {
+        let body = std::fs::read_to_string(&path).unwrap();
+        for (i, line) in body.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for b in banned {
+                if trimmed.contains(b) {
+                    offenders.push(format!("{}:{} ({b})", path.display(), i + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "bare Command::new(binary) forbidden (found: {offenders:?})"
+    );
+}

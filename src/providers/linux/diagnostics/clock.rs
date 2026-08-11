@@ -1,23 +1,20 @@
 //! Clock / NTP sync via timedatectl (fixed args).
 
-use std::process::Stdio;
-
-use tokio::process::Command;
-
+use crate::actions::trusted::{run_trusted_optional, ExecutionPolicy, TrustedCommand};
 use crate::error::AppError;
 use crate::model::ClockSyncSnapshot;
 use crate::sanitize::sanitize_text;
 
 pub(crate) async fn probe_clock() -> Result<Option<ClockSyncSnapshot>, AppError> {
     // Prefer machine-readable `timedatectl show` over human `status` text.
-    let show = Command::new("timedatectl")
-        .args(["show", "--property=NTPSynchronized", "--value"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await;
-    if let Ok(output) = show {
-        if output.status.success() {
+    if let Ok(Some(output)) = run_trusted_optional(
+        TrustedCommand::Timedatectl,
+        &["show", "--property=NTPSynchronized", "--value"],
+        ExecutionPolicy::timedatectl(),
+    )
+    .await
+    {
+        if output.success {
             let value = String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .to_ascii_lowercase();
@@ -33,16 +30,16 @@ pub(crate) async fn probe_clock() -> Result<Option<ClockSyncSnapshot>, AppError>
         }
     }
 
-    let output = Command::new("timedatectl")
-        .arg("status")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await;
-    let Ok(output) = output else {
+    let Some(output) = run_trusted_optional(
+        TrustedCommand::Timedatectl,
+        &["status"],
+        ExecutionPolicy::timedatectl(),
+    )
+    .await?
+    else {
         return Ok(None);
     };
-    if !output.status.success() {
+    if !output.success {
         return Ok(None);
     }
     let text = String::from_utf8_lossy(&output.stdout);

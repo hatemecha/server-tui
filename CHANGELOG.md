@@ -10,11 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Settings is a checkbox / cycle form: Tab sections↔options, Space toggles, ←/→ cycles (no per-setting letter keys)
 - Nav/tabs use reverse-video selection for clearer current screen
+- External commands (`journalctl`, `coredumpctl`, `timedatectl`, `smartctl`, `sudo`/`systemctl`) resolve via `TrustedCommand` and enforce `ExecutionPolicy` (timeout, stdout/stderr caps, kill_on_drop); streaming journal follow keeps separate lifecycle (no oneshot timeout)
+- Typed errors `ExternalTimeout` / `ExternalOutputLimit` with clear user-facing messages (output not truncated silently)
+- ROADMAP trimmed to future work only; README release badge + musl experimental note
 
 ### Fixed
 
 - First run opens **Dashboard** (Settings remains optional via `7`); digit keys `1`–`7` always switch screens even on Settings
 - Confirm dialogs use filled Title-Case buttons instead of `[ CANCEL ]` / `[ YES ]` brackets
+- `doctor --demo` / `support --demo` use fixed HMixed dataset (no longer empty “healthy” from tick 0)
+- Support markdown includes demo/read_only flags, failed services, and empty-section placeholders
+
+### Added
+
+- Semantic TestBackend assertions (READ ONLY, findings, tiny-terminal fallback); architecture check forbidding bare `Command::new("journalctl")` etc.
 
 ## [0.3.1] — 2026-08-11
 

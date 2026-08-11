@@ -31,6 +31,12 @@ impl DemoDataset {
         }
     }
 
+    /// One-shot CLI demo (`doctor --demo` / `support --demo`): interesting findings.
+    /// Interactive TUI keeps `from_tick` cycling so the UI shows variety over time.
+    pub fn for_cli_demo() -> Self {
+        Self::HMixed
+    }
+
     pub fn build(self) -> DiagnosticSnapshot {
         let mut snap = DiagnosticSnapshot {
             systemd_observable: true,

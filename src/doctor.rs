@@ -37,17 +37,19 @@ pub struct DoctorArgs {
 /// Exit codes: 0 Ok, 1 Warning, 2 Critical, 3 Unknown / probe failure.
 pub async fn run_doctor(args: DoctorArgs) -> u8 {
     let config = Config::default();
-    let providers = if args.demo {
-        DemoProviders::bundle(true)
-    } else {
-        linux_bundle(true, &config)
-    };
 
-    let snap = match providers.diagnostics.probe(true, true).await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("{APP_NAME} doctor: probe failed: {}", e.user_message());
-            return 3;
+    // CLI demo uses a fixed mixed dataset so `doctor --demo` shows findings.
+    // Interactive TUI keeps tick-cycled datasets via DemoDiagnostics::probe.
+    let snap = if args.demo {
+        DemoProviders::cli_diagnostic_snapshot()
+    } else {
+        let providers = linux_bundle(true, &config);
+        match providers.diagnostics.probe(true, true).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{APP_NAME} doctor: probe failed: {}", e.user_message());
+                return 3;
+            }
         }
     };
 
@@ -80,4 +82,22 @@ pub async fn run_doctor(args: DoctorArgs) -> u8 {
 
 pub fn doctor_exit_code(code: u8) -> ExitCode {
     ExitCode::from(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostics::evaluate;
+
+    #[test]
+    fn cli_demo_snapshot_has_findings() {
+        let snap = DemoProviders::cli_diagnostic_snapshot();
+        let findings = evaluate(&snap);
+        assert!(
+            !findings.is_empty(),
+            "doctor --demo must show findings (HMixed)"
+        );
+        let health = compute_health_status(&findings, true, true);
+        assert_ne!(health, HealthStatus::Ok);
+    }
 }

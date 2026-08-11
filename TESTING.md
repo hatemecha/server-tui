@@ -34,10 +34,11 @@ cargo run -- --scan-path "$HOME"
 - XDG state.toml atomic roundtrip (incl. SMART CRC counters)
 - Safe file preview (symlink refuse, binary detect, 64KiB cap)
 - Console unit DryRunFs install/remove (no host writes)
-- Trusted sudo argv FakeCommandRunner
+- Trusted sudo argv FakeCommandRunner; ExecutionPolicy timeout/output-cap tests
 - Viewport selection clamping
 - Footer hint compaction
-- TestBackend render smoke (80×24 dashboard/diagnostics; tiny terminal)
+- TestBackend render smoke + semantic checks (READ ONLY, finding title, tiny fallback)
+- Architecture invariants (app↛ui, diagnostics purity, no bare Command::new binaries)
 
 ## What tests must never do
 
@@ -59,4 +60,4 @@ Manual smoke never runs real install/remove host mutation.
 
 ## Diagnostic fixtures
 
-Pure evaluator tests live in `src/diagnostics/evaluator.rs` with synthetic `DiagnosticSnapshot` values (no I/O). Demo datasets A–H exercise probe→evaluate in `--demo` / `doctor --demo`.
+Pure evaluator tests live in `src/diagnostics/evaluator.rs` with synthetic `DiagnosticSnapshot` values (no I/O). Demo datasets A–H cycle in the interactive TUI; `doctor --demo` / `support --demo` use fixed **HMixed** so CLI demos always show findings.

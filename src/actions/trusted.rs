@@ -1,8 +1,9 @@
-//! Trusted absolute-path command resolution (sudo fallback helpers).
+//! Trusted absolute-path command resolution and bounded execution.
 //! Never accepts free-form shell. Only /usr/bin /bin /usr/sbin /sbin.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use crate::error::AppError;
 use crate::model::{ServiceActionKind, UnitRegistry};
@@ -32,36 +33,101 @@ impl TrustedCommand {
         }
     }
 
+    /// Resolve under trusted directories. Missing optional tools → `Unsupported`.
     pub fn resolve(self) -> Result<PathBuf, AppError> {
         resolve_trusted(self.binary_name())
     }
+
+    /// Soft resolve for optional probes (None when unavailable).
+    pub fn try_resolve(self) -> Option<PathBuf> {
+        self.resolve().ok()
+    }
 }
 
-/// Caps for external process execution (timeouts / stdout / kill_on_drop).
+/// Caps for external process execution (timeouts / stdout / stderr / kill_on_drop).
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutionPolicy {
-    pub timeout: std::time::Duration,
+    pub timeout: Duration,
     pub max_stdout_bytes: usize,
+    pub max_stderr_bytes: usize,
     pub kill_on_drop: bool,
 }
 
 impl Default for ExecutionPolicy {
     fn default() -> Self {
         Self {
-            timeout: std::time::Duration::from_secs(30),
+            timeout: Duration::from_secs(30),
             max_stdout_bytes: 2 * 1024 * 1024,
+            max_stderr_bytes: 256 * 1024,
             kill_on_drop: true,
         }
     }
 }
 
 impl ExecutionPolicy {
-    pub fn short() -> Self {
+    pub fn journalctl() -> Self {
         Self {
-            timeout: std::time::Duration::from_secs(5),
-            ..Self::default()
+            timeout: Duration::from_secs(8),
+            max_stdout_bytes: 2 * 1024 * 1024,
+            max_stderr_bytes: 256 * 1024,
+            kill_on_drop: true,
         }
     }
+
+    pub fn coredumpctl() -> Self {
+        Self {
+            timeout: Duration::from_secs(8),
+            max_stdout_bytes: 1024 * 1024,
+            max_stderr_bytes: 256 * 1024,
+            kill_on_drop: true,
+        }
+    }
+
+    pub fn timedatectl() -> Self {
+        Self {
+            timeout: Duration::from_secs(5),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 64 * 1024,
+            kill_on_drop: true,
+        }
+    }
+
+    pub fn smartctl() -> Self {
+        Self {
+            timeout: Duration::from_secs(10),
+            max_stdout_bytes: 512 * 1024,
+            max_stderr_bytes: 128 * 1024,
+            kill_on_drop: true,
+        }
+    }
+
+    pub fn sudo_systemctl() -> Self {
+        Self {
+            timeout: Duration::from_secs(30),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 256 * 1024,
+            kill_on_drop: true,
+        }
+    }
+
+    /// Availability probes (`--version`) — tiny output, short timeout.
+    pub fn probe() -> Self {
+        Self {
+            timeout: Duration::from_secs(3),
+            max_stdout_bytes: 16 * 1024,
+            max_stderr_bytes: 16 * 1024,
+            kill_on_drop: true,
+        }
+    }
+}
+
+/// Successful oneshot capture (status may still be non-zero).
+#[derive(Debug, Clone)]
+pub struct CapturedOutput {
+    pub status_code: Option<i32>,
+    pub success: bool,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 /// Resolve a binary name to an absolute path under trusted directories only.
@@ -81,12 +147,162 @@ pub fn resolve_trusted(binary: &str) -> Result<PathBuf, AppError> {
             return Ok(candidate);
         }
     }
-    Err(AppError::Internal(format!(
+    Err(AppError::Unsupported(format!(
         "trusted binary not found: {binary}"
     )))
 }
 
-/// Abstract command runner for tests (no real sudo).
+fn map_exit(status: &std::process::ExitStatus) -> (bool, Option<i32>) {
+    (status.success(), status.code())
+}
+
+/// Bounded oneshot via tokio (trusted absolute path, no shell, stdin null).
+pub async fn run_oneshot(
+    program: &Path,
+    args: &[&str],
+    policy: ExecutionPolicy,
+) -> Result<CapturedOutput, AppError> {
+    use tokio::io::AsyncReadExt;
+    use tokio::process::Command as TokioCommand;
+
+    let mut cmd = TokioCommand::new(program);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(policy.kill_on_drop);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::ExternalCommand(format!("spawn {}: {e}", program.display())))?;
+
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::ExternalCommand("missing stdout pipe".into()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::ExternalCommand("missing stderr pipe".into()))?;
+
+    let max_out = policy.max_stdout_bytes;
+    let max_err = policy.max_stderr_bytes;
+    let collect = async {
+        let mut out_buf = Vec::new();
+        let mut err_buf = Vec::new();
+        let mut out_chunk = [0u8; 8192];
+        let mut err_chunk = [0u8; 8192];
+        let mut out_done = false;
+        let mut err_done = false;
+        loop {
+            tokio::select! {
+                n = stdout.read(&mut out_chunk), if !out_done => {
+                    match n {
+                        Ok(0) => out_done = true,
+                        Ok(n) => {
+                            if out_buf.len() + n > max_out {
+                                return Err(AppError::ExternalOutputLimit {
+                                    stream: "stdout",
+                                    limit_bytes: max_out,
+                                });
+                            }
+                            out_buf.extend_from_slice(&out_chunk[..n]);
+                        }
+                        Err(e) => {
+                            return Err(AppError::ExternalCommand(format!("stdout read: {e}")));
+                        }
+                    }
+                }
+                n = stderr.read(&mut err_chunk), if !err_done => {
+                    match n {
+                        Ok(0) => err_done = true,
+                        Ok(n) => {
+                            if err_buf.len() + n > max_err {
+                                return Err(AppError::ExternalOutputLimit {
+                                    stream: "stderr",
+                                    limit_bytes: max_err,
+                                });
+                            }
+                            err_buf.extend_from_slice(&err_chunk[..n]);
+                        }
+                        Err(e) => {
+                            return Err(AppError::ExternalCommand(format!("stderr read: {e}")));
+                        }
+                    }
+                }
+                else => break,
+            }
+            if out_done && err_done {
+                break;
+            }
+        }
+        Ok((out_buf, err_buf))
+    };
+
+    let collected = match tokio::time::timeout(policy.timeout, collect).await {
+        Ok(Ok(bufs)) => bufs,
+        Ok(Err(e)) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(e);
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(AppError::ExternalTimeout {
+                program: program.display().to_string(),
+                timeout_secs: policy.timeout.as_secs(),
+            });
+        }
+    };
+
+    let status = match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            return Err(AppError::ExternalCommand(format!("wait failed: {e}")));
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(AppError::ExternalTimeout {
+                program: program.display().to_string(),
+                timeout_secs: policy.timeout.as_secs(),
+            });
+        }
+    };
+
+    let (success, status_code) = map_exit(&status);
+    Ok(CapturedOutput {
+        status_code,
+        success,
+        stdout: collected.0,
+        stderr: collected.1,
+    })
+}
+
+/// Run a TrustedCommand oneshot with policy (argv fixed by caller).
+pub async fn run_trusted(
+    command: TrustedCommand,
+    args: &[&str],
+    policy: ExecutionPolicy,
+) -> Result<CapturedOutput, AppError> {
+    let path = command.resolve()?;
+    run_oneshot(&path, args, policy).await
+}
+
+/// Soft oneshot: missing binary → None (capability unavailable).
+pub async fn run_trusted_optional(
+    command: TrustedCommand,
+    args: &[&str],
+    policy: ExecutionPolicy,
+) -> Result<Option<CapturedOutput>, AppError> {
+    let Some(path) = command.try_resolve() else {
+        return Ok(None);
+    };
+    Ok(Some(run_oneshot(&path, args, policy).await?))
+}
+
+/// Abstract command runner for tests (no real sudo). Sync path for elevation.
 pub trait CommandRunner: Send + Sync {
     fn run(&self, program: &Path, args: &[&str]) -> Result<std::process::Output, AppError>;
 }
@@ -95,10 +311,81 @@ pub struct RealCommandRunner;
 
 impl CommandRunner for RealCommandRunner {
     fn run(&self, program: &Path, args: &[&str]) -> Result<std::process::Output, AppError> {
-        Command::new(program)
+        use std::io::Read;
+
+        let policy = ExecutionPolicy::sudo_systemctl();
+        let mut child = Command::new(program)
             .args(args)
-            .output()
-            .map_err(|e| AppError::Internal(format!("spawn {}: {e}", program.display())))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| AppError::Internal(format!("spawn {}: {e}", program.display())))?;
+
+        let mut stdout_pipe = child
+            .stdout
+            .take()
+            .ok_or_else(|| AppError::Internal("missing stdout".into()))?;
+        let mut stderr_pipe = child
+            .stderr
+            .take()
+            .ok_or_else(|| AppError::Internal("missing stderr".into()))?;
+
+        let out_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = stdout_pipe.read_to_end(&mut buf);
+            buf
+        });
+        let err_handle = std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = stderr_pipe.read_to_end(&mut buf);
+            buf
+        });
+
+        let deadline = std::time::Instant::now() + policy.timeout;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break s,
+                Ok(None) if std::time::Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = out_handle.join();
+                    let _ = err_handle.join();
+                    return Err(AppError::ExternalTimeout {
+                        program: program.display().to_string(),
+                        timeout_secs: policy.timeout.as_secs(),
+                    });
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Err(e) => {
+                    return Err(AppError::Internal(format!(
+                        "wait {}: {e}",
+                        program.display()
+                    )));
+                }
+            }
+        };
+
+        let stdout = out_handle.join().unwrap_or_default();
+        let stderr = err_handle.join().unwrap_or_default();
+
+        if stdout.len() > policy.max_stdout_bytes {
+            return Err(AppError::ExternalOutputLimit {
+                stream: "stdout",
+                limit_bytes: policy.max_stdout_bytes,
+            });
+        }
+        if stderr.len() > policy.max_stderr_bytes {
+            return Err(AppError::ExternalOutputLimit {
+                stream: "stderr",
+                limit_bytes: policy.max_stderr_bytes,
+            });
+        }
+        Ok(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
     }
 }
 
@@ -143,8 +430,8 @@ pub fn sudo_systemctl_args(
     action: ServiceActionKind,
     unit: &str,
 ) -> Result<(PathBuf, Vec<String>), AppError> {
-    let sudo = resolve_trusted("sudo")?;
-    let systemctl = resolve_trusted("systemctl")?;
+    let sudo = TrustedCommand::Sudo.resolve()?;
+    let systemctl = TrustedCommand::Systemctl.resolve()?;
     if !crate::providers::linux::systemd::unit_looks_safe(unit) {
         return Err(AppError::Systemd("refusing unsafe unit name".into()));
     }
@@ -197,6 +484,12 @@ mod tests {
     }
 
     #[test]
+    fn missing_binary_is_unsupported_not_internal() {
+        let err = resolve_trusted("this-binary-does-not-exist-xyzzy").unwrap_err();
+        assert!(matches!(err, AppError::Unsupported(_)));
+    }
+
+    #[test]
     fn fake_runner_records_call() {
         let fake = FakeCommandRunner {
             exit_code: 0,
@@ -242,5 +535,64 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert!(calls[0].1.iter().any(|a| a == "ssh.service"));
         assert!(calls[0].1.iter().any(|a| a == "restart"));
+    }
+
+    #[test]
+    fn execution_policy_presets_are_bounded() {
+        let j = ExecutionPolicy::journalctl();
+        assert!(j.timeout <= Duration::from_secs(10));
+        assert_eq!(j.max_stdout_bytes, 2 * 1024 * 1024);
+        assert_eq!(j.max_stderr_bytes, 256 * 1024);
+
+        let t = ExecutionPolicy::timedatectl();
+        assert!(t.max_stdout_bytes <= 64 * 1024);
+    }
+
+    #[tokio::test]
+    async fn oneshot_respects_stdout_cap() {
+        // Test-only: resolve an allowlisted helper. Production never passes user paths.
+        let Ok(yes) = resolve_trusted("yes") else {
+            // Skip when `yes` is absent from trusted dirs (unusual on Linux).
+            return;
+        };
+        let policy = ExecutionPolicy {
+            timeout: Duration::from_secs(3),
+            max_stdout_bytes: 1024,
+            max_stderr_bytes: 1024,
+            kill_on_drop: true,
+        };
+        let err = run_oneshot(&yes, &[], policy)
+            .await
+            .expect_err("yes must exceed stdout cap");
+        assert!(
+            matches!(
+                err,
+                AppError::ExternalOutputLimit {
+                    stream: "stdout",
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oneshot_timeout_kills_child() {
+        let Ok(sleep) = resolve_trusted("sleep") else {
+            return;
+        };
+        let policy = ExecutionPolicy {
+            timeout: Duration::from_millis(200),
+            max_stdout_bytes: 1024,
+            max_stderr_bytes: 1024,
+            kill_on_drop: true,
+        };
+        let err = run_oneshot(&sleep, &["5"], policy)
+            .await
+            .expect_err("sleep must time out");
+        assert!(
+            matches!(err, AppError::ExternalTimeout { .. }),
+            "got {err:?}"
+        );
     }
 }

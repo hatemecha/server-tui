@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::process::Stdio;
 
-use tokio::process::Command;
-
+use crate::actions::trusted::{run_trusted_optional, ExecutionPolicy, TrustedCommand};
 use crate::error::AppError;
 use crate::model::{JournalCriticalGroup, OomEvent};
 use crate::sanitize::{sanitize_cell, sanitize_text};
@@ -59,20 +57,24 @@ impl JournalQuery {
 }
 
 pub(crate) async fn run_journalctl(query: &JournalQuery) -> Result<String, AppError> {
-    let mut cmd = Command::new("journalctl");
-    for a in &query.args {
-        cmd.arg(a);
+    let args: Vec<&str> = query.args.iter().filter_map(|a| a.to_str()).collect();
+    if args.len() != query.args.len() {
+        return Err(AppError::Journal("non-utf8 journalctl args".into()));
     }
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| AppError::Journal(format!("journalctl: {e}")))?;
-    if !output.status.success() {
+    let Some(output) = run_trusted_optional(
+        TrustedCommand::Journalctl,
+        &args,
+        ExecutionPolicy::journalctl(),
+    )
+    .await?
+    else {
+        return Err(AppError::Journal("journalctl unavailable".into()));
+    };
+    if !output.success {
         let err = String::from_utf8_lossy(&output.stderr);
         return Err(AppError::Journal(format!(
-            "journalctl exited {}: {}",
-            output.status, err
+            "journalctl exited {:?}: {}",
+            output.status_code, err
         )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())

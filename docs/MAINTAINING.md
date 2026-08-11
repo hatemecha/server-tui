@@ -58,7 +58,16 @@ Authoritative key map is `src/app/update/keymap.rs` (`map_key`). There is no par
 
 ## Release
 
-Tags `v*` trigger `.github/workflows/release.yml`. GNU builds must succeed; musl may be experimental. Tarball should include binary (+ docs when packaging locally). Verify `--version`, `--help`, `doctor --demo`.
+Tags `v*` trigger `.github/workflows/release.yml`.
+
+- **gnu (`x86_64-unknown-linux-gnu`)**: supported — build/smoke failure fails the job.
+- **musl (`x86_64-unknown-linux-musl`)**: **experimental** — failure skips that asset only; do not promise musl in install docs as primary.
+
+Tarball includes binary + LICENSE + README. Verify `--version`, `--help`, `doctor --demo`. GitHub Actions use major version tags (`@v4`) intentionally after prior full-SHA pins proved unverifiable; Dependabot still watches `github-actions`.
+
+## External commands
+
+All allowlisted tools go through `src/actions/trusted.rs` (`TrustedCommand` + `ExecutionPolicy` + `run_oneshot` / `CommandRunner`). Do not add `Command::new("journalctl")`-style PATH lookups.
 
 ## Persistence invariant
 

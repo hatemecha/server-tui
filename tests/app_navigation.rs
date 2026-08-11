@@ -69,3 +69,54 @@ fn selection_moves_in_process_list() {
     assert_eq!(s.process_selected(), 1);
     assert_eq!(s.process.selected_pid, Some(2));
 }
+
+#[test]
+fn demo_journey_covers_main_screens_and_quit() {
+    use server_tui::app::state::Dialog;
+    use server_tui::app::update::SideEffect;
+
+    let mut s = state();
+    assert_eq!(s.screen, Screen::Dashboard);
+
+    s.process.items = vec![ProcessInfo {
+        pid: 42,
+        user: "demo".into(),
+        name: "nginx".into(),
+        cmd: "nginx".into(),
+        cpu: 1.0,
+        mem_pct: Some(1.0),
+        mem_bytes: 1,
+        state: "S".into(),
+        run_time_secs: 1,
+        start_time: 1,
+    }];
+    s.process.selected_pid = Some(42);
+
+    let tour = [
+        Screen::Processes,
+        Screen::Services,
+        Screen::Logs,
+        Screen::Storage,
+        Screen::Diagnostics,
+        Screen::Settings,
+        Screen::Dashboard,
+    ];
+    for screen in tour {
+        let _ = apply_action(&mut s, AppAction::ChangeScreen(screen));
+        assert_eq!(s.screen, screen);
+    }
+
+    let _ = apply_action(&mut s, AppAction::ChangeScreen(Screen::Processes));
+    let effects = apply_action(&mut s, AppAction::Inspect);
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::FetchProcessDetails { pid: 42 }))
+            || matches!(s.dialog, Some(Dialog::Inspector { .. })),
+        "inspect on processes should fetch details or open inspector; effects={effects:?} dialog={:?}",
+        s.dialog
+    );
+
+    let _ = apply_action(&mut s, AppAction::Quit);
+    assert!(s.should_quit);
+}

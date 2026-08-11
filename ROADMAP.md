@@ -1,39 +1,29 @@
 # Roadmap
 
-## Done in 0.3.1
+Future work only. Completed work lives in [CHANGELOG.md](CHANGELOG.md).
 
-- Settings keybinding precedence; ActiveState exact paint; elevation dialog + RAII terminal suspension
-- LogsReplaced/Appended; SaveReport side effect; single-writer persist (SMART)
-- Config watch for pollers; details cache TTL; preview O_NOFOLLOW; 0600/0700 reports
-- Dependency inversion for viewport/status/profiles; SettingId; locals-before-globals `map_key`
-- Storage entry budget; process-tree guards; architecture/render matrix tests; ADRs + MAINTAINING
+## Near term
 
-## Post-0.3.1 maintainability
+- Further journal follow lifecycle hardening from real-server use (still journalctl backend)
+- UX polish driven by physical / SSH / old-TTY feedback
+- Optional process signal customization beyond TERM/KILL/STOP/CONT
 
-Shipped in **0.3.1** (see CHANGELOG): English UI errors; sudo path known-unit registry; unified `Screen`; status_line; docs honesty for Releases.
+## Later
 
-## Done in 0.3
-
-- Viewport scrolling, selection markers, toast status, terminal/performance profiles
-- Settings + first-run onboarding flag, wallboard, support CLI, console unit generator
-- Process MEM% correctness; service hotkey coherence (`r` refresh / `R` restart)
-- SMART read-only findings; Attention dashboard panel
-- Repo polish (CI matrix, release workflow, deny/audit/dependabot, README)
-
-## Future ideas (MVP out of scope — do not implement yet)
-
-- Richer systemd unit dependency graph
-- Native journald API (sd-journal) without journalctl child
-- Configurable process signal set beyond TERM/KILL/STOP/CONT
+- Native journald API (sd-journal) as an optional backend — only with evidence that journalctl is a bottleneck or reliability problem (linking/musl/packaging impact)
+- Optional metrics snapshot export (evaluate Prometheus textfile compatibility)
+- Networking / firewall read-only views
+- Package / container visibility (Docker/Podman)
 - Session layout persistence beyond acknowledgements / onboarding
-- Further AppState screen substates / full `update.rs` module split
-- Netplan / firewall / users / packages / containers UIs (read-only proposals)
-- Embedded file editor / destructive disk tools
-- Remote multi-host fleet / HTTP API / plugins / telemetry
+- Richer systemd unit dependency graph
+- Mouse support / configurable keymaps (only if there is clear user demand; keyboard remains primary on old TTYs and SSH)
+- Remote multi-host fleet / HTTP API / plugins
 - Internationalization (i18n) beyond English base copy
 
-## Out of scope
+## Non-goals
 
-- Replacing Cockpit
+- Replacing Cockpit or becoming a web panel
 - Auto privilege escalation helpers
 - Automatic repair / AI remediation
+- Embedded shell, arbitrary commands, telemetry, or silent elevation
+- Netplan / firewall / users / packages / containers UIs in the current MVP scope (record ideas here; do not implement yet)

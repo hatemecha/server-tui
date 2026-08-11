@@ -36,7 +36,7 @@ Pipeline: strip ANSI → replace control characters → `sanitize_path_display` 
 
 ## Command execution
 
-Allowed external programs (fixed argv, no shell): `journalctl`, `coredumpctl`, `timedatectl`, optional `smartctl` (read-only `-H -A -l error`), trusted `sudo`/`systemctl` paths for typed elevation. Signals via `nix` `kill`. Systemd via zbus.
+Allowed external programs (fixed argv, no shell): `journalctl`, `coredumpctl`, `timedatectl`, optional `smartctl` (read-only `-H -A -l error`), trusted `sudo`/`systemctl` paths for typed elevation. Binaries resolve only under `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin` via `TrustedCommand`. Oneshot execution applies `ExecutionPolicy` (timeout, stdout/stderr caps); over-limit returns `ExternalOutputLimit` (no silent truncate). `journalctl --follow` is streaming-only (kill_on_drop + cancel; no oneshot timeout). Signals via `nix` `kill`. Systemd via zbus.
 
 Unit actions require: lexical `unit_looks_safe` **and** membership in the shared known-unit registry from the last list.
 

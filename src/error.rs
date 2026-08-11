@@ -36,6 +36,15 @@ pub enum AppError {
     #[error("external command failed: {0}")]
     ExternalCommand(String),
 
+    #[error("external command {program} timed out after {timeout_secs}s")]
+    ExternalTimeout { program: String, timeout_secs: u64 },
+
+    #[error("external command {stream} exceeded {limit_bytes} byte limit")]
+    ExternalOutputLimit {
+        stream: &'static str,
+        limit_bytes: usize,
+    },
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -58,6 +67,18 @@ impl AppError {
             Self::Storage(m) => format!("Storage: {m}"),
             Self::Unsupported(m) => format!("Unavailable: {m}"),
             Self::ExternalCommand(m) => format!("External command: {m}"),
+            Self::ExternalTimeout {
+                program,
+                timeout_secs,
+            } => format!(
+                "External command timed out ({program}, {timeout_secs}s). Output was discarded."
+            ),
+            Self::ExternalOutputLimit {
+                stream,
+                limit_bytes,
+            } => format!(
+                "External command {stream} exceeded the {limit_bytes}-byte safety limit. Output was discarded."
+            ),
             Self::Internal(m) => format!("Internal error: {m}"),
         }
     }
@@ -92,6 +113,16 @@ mod tests {
             AppError::Storage("x".into()).user_message(),
             AppError::Unsupported("x".into()).user_message(),
             AppError::ExternalCommand("x".into()).user_message(),
+            AppError::ExternalTimeout {
+                program: "x".into(),
+                timeout_secs: 1,
+            }
+            .user_message(),
+            AppError::ExternalOutputLimit {
+                stream: "stdout",
+                limit_bytes: 1,
+            }
+            .user_message(),
             AppError::Internal("x".into()).user_message(),
         ];
         for msg in samples {
@@ -107,5 +138,11 @@ mod tests {
         assert!(AppError::Permission("x".into())
             .user_message()
             .contains("Permission denied"));
+        assert!(AppError::ExternalOutputLimit {
+            stream: "stdout",
+            limit_bytes: 100,
+        }
+        .user_message()
+        .contains("safety limit"));
     }
 }

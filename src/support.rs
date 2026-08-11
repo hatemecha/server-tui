@@ -186,37 +186,65 @@ fn render_text(r: &SupportReport) -> String {
         r.version, r.health, r.hostname, r.demo, r.read_only
     ));
     out.push_str("Findings:\n");
-    for f in &r.findings {
-        out.push_str(&format!("- [{}] {}: {}\n", f.severity, f.id, f.title));
+    if r.findings.is_empty() {
+        out.push_str("- (none)\n");
+    } else {
+        for f in &r.findings {
+            out.push_str(&format!("- [{}] {}: {}\n", f.severity, f.id, f.title));
+        }
     }
     out.push_str("\nTop processes:\n");
-    for p in &r.top_processes {
-        out.push_str(&format!(
-            "- pid={} cpu={:.1} mem={} {} ({})\n",
-            p.pid, p.cpu, p.mem, p.name, p.cmd_redacted
-        ));
+    if r.top_processes.is_empty() {
+        out.push_str("- (none)\n");
+    } else {
+        for p in &r.top_processes {
+            out.push_str(&format!(
+                "- pid={} cpu={:.1} mem={} {} ({})\n",
+                p.pid, p.cpu, p.mem, p.name, p.cmd_redacted
+            ));
+        }
     }
     out.push_str("\nFailed services:\n");
-    for u in &r.failed_services {
-        out.push_str(&format!("- {u}\n"));
+    if r.failed_services.is_empty() {
+        out.push_str("- (none)\n");
+    } else {
+        for u in &r.failed_services {
+            out.push_str(&format!("- {u}\n"));
+        }
     }
     out
 }
 
 fn render_markdown(r: &SupportReport) -> String {
     let mut out = format!(
-        "# {APP_NAME} support report\n\n- version: `{}`\n- health: **{}**\n- host: `{}`\n\n## Findings\n\n",
-        r.version, r.health, r.hostname
+        "# {APP_NAME} support report\n\n- version: `{}`\n- health: **{}**\n- host: `{}`\n- demo: `{}`\n- read_only: `{}`\n\n## Findings\n\n",
+        r.version, r.health, r.hostname, r.demo, r.read_only
     );
-    for f in &r.findings {
-        out.push_str(&format!("- **{}** `{}`: {}\n", f.severity, f.id, f.title));
+    if r.findings.is_empty() {
+        out.push_str("_none_\n");
+    } else {
+        for f in &r.findings {
+            out.push_str(&format!("- **{}** `{}`: {}\n", f.severity, f.id, f.title));
+        }
     }
     out.push_str("\n## Top processes\n\n");
-    for p in &r.top_processes {
-        out.push_str(&format!(
-            "- `{}` pid={} cpu={:.1}% mem={} — `{}`\n",
-            p.name, p.pid, p.cpu, p.mem, p.cmd_redacted
-        ));
+    if r.top_processes.is_empty() {
+        out.push_str("_none_\n");
+    } else {
+        for p in &r.top_processes {
+            out.push_str(&format!(
+                "- `{}` pid={} cpu={:.1}% mem={} — `{}`\n",
+                p.name, p.pid, p.cpu, p.mem, p.cmd_redacted
+            ));
+        }
+    }
+    out.push_str("\n## Failed services\n\n");
+    if r.failed_services.is_empty() {
+        out.push_str("_none_\n");
+    } else {
+        for u in &r.failed_services {
+            out.push_str(&format!("- `{u}`\n"));
+        }
     }
     out
 }
@@ -273,5 +301,24 @@ mod tests {
         );
         let s = render(&r, SupportFormat::Json).expect("json");
         assert!(s.contains("server-tui"));
+    }
+
+    #[test]
+    fn markdown_includes_flags_and_empty_placeholders() {
+        let r = build_report(
+            &SystemMetrics::default(),
+            &[],
+            &[],
+            &[],
+            HealthStatus::Ok,
+            true,
+            true,
+            false,
+        );
+        let md = render(&r, SupportFormat::Markdown).expect("md");
+        assert!(md.contains("demo: `true`"));
+        assert!(md.contains("read_only: `true`"));
+        assert!(md.contains("_none_"));
+        assert!(md.contains("## Failed services"));
     }
 }

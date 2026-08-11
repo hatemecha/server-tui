@@ -16,13 +16,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Supported primary target — failures must fail the job.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          # Experimental: on failure, skip asset only (do not fail whole release).
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             musl: true
     runs-on: ${{ matrix.os }}
     steps:
+      # Actions use major tags (@v4) intentionally: prior full-SHA pins were
+      # unverifiable / broken for this repo. Dependabot tracks github-actions.
       - uses: actions/checkout@v4
 
       - name: Install Rust
@@ -38,8 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ matrix.musl }}" = "true" ]; then
+            # Experimental musl: degrade by skipping asset, not by claiming success of a broken gnu build.
             cargo build --release --target ${{ matrix.target }} || {
-              echo "musl build failed — skipping asset for this target"
+              echo "EXPERIMENTAL musl build failed — skipping musl asset"
               echo "SKIP=1" >> "$GITHUB_ENV"
               exit 0
             }
@@ -58,6 +63,7 @@ jobs:
           cp LICENSE README.md "${NAME}/"
           tar -czf "dist/${NAME}.tar.gz" "${NAME}"
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.sha256")
+          # Smoke checks must not be ignored (no `|| true`).
           "$BIN" --version
           "$BIN" --help >/dev/null
           "$BIN" doctor --demo >/dev/null
@@ -83,7 +89,8 @@ jobs:
           find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
           find artifacts -type f -name '*.sha256' -exec cat {} \; > release/SHA256SUMS
           ls -la release
-          test -n "$(find release -type f -name '*.tar.gz' | head -1)"
+          # At least the supported gnu asset must exist.
+          test -n "$(find release -type f -name '*x86_64-unknown-linux-gnu.tar.gz' | head -1)"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

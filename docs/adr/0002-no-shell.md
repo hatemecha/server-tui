@@ -14,4 +14,4 @@ All external processes use `Command::arg` / `args` with allowlisted action verbs
 
 ## Consequences
 
-Helpers such as `TrustedCommand` / `ExecutionPolicy` and `FakeCommandRunner` keep tests free of real elevation.
+Helpers such as `TrustedCommand` / `ExecutionPolicy` (enforced timeouts and output caps) and `FakeCommandRunner` keep tests free of real elevation. Streaming `journalctl --follow` uses trusted resolution + `kill_on_drop` / cancel without a oneshot timeout.

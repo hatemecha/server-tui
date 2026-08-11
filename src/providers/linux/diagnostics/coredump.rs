@@ -1,23 +1,23 @@
 //! Coredumpctl listing (read-only).
 
 use std::path::Path;
-use std::process::Stdio;
 
-use tokio::process::Command;
-
+use crate::actions::trusted::{run_trusted_optional, ExecutionPolicy, TrustedCommand};
 use crate::error::AppError;
 use crate::model::CoredumpEntry;
 use crate::sanitize::{sanitize_cell, sanitize_path_display};
 
 pub(crate) async fn probe_coredumps() -> Result<Vec<CoredumpEntry>, AppError> {
-    let mut cmd = Command::new("coredumpctl");
-    cmd.args(["--no-pager", "--json=short", "-n", "10"]);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = match cmd.output().await {
-        Ok(o) => o,
-        Err(_) => return Ok(Vec::new()),
+    let Some(output) = run_trusted_optional(
+        TrustedCommand::Coredumpctl,
+        &["--no-pager", "--json=short", "-n", "10"],
+        ExecutionPolicy::coredumpctl(),
+    )
+    .await?
+    else {
+        return Ok(Vec::new());
     };
-    if !output.status.success() {
+    if !output.success {
         return Ok(Vec::new());
     }
     let text = String::from_utf8_lossy(&output.stdout);

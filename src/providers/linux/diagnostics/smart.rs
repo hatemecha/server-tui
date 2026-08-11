@@ -2,33 +2,26 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Stdio;
 
-use tokio::process::Command;
-
+use crate::actions::trusted::{run_oneshot, ExecutionPolicy, TrustedCommand};
 use crate::error::AppError;
 use crate::model::SmartDiskSnapshot;
 use crate::sanitize::{sanitize_path_display, sanitize_text};
 
 pub(crate) async fn probe_smart_readonly() -> Result<Vec<SmartDiskSnapshot>, AppError> {
-    let smartctl = match crate::actions::trusted::resolve_trusted("smartctl") {
-        Ok(p) => p,
-        Err(_) => return Ok(Vec::new()), // soft: smartctl optional
+    let Some(smartctl) = TrustedCommand::Smartctl.try_resolve() else {
+        return Ok(Vec::new()); // soft: smartctl optional
     };
     let mut disks = Vec::new();
     // Conservative device enumeration: only common block names under /dev.
     let candidates = list_smart_device_candidates();
     for dev in candidates.into_iter().take(8) {
-        let output = Command::new(&smartctl)
-            .arg("-H")
-            .arg("-A")
-            .arg("-l")
-            .arg("error")
-            .arg(&dev)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
+        let output = run_oneshot(
+            &smartctl,
+            &["-H", "-A", "-l", "error", &dev],
+            ExecutionPolicy::smartctl(),
+        )
+        .await;
         let Ok(out) = output else {
             continue;
         };
@@ -90,4 +83,19 @@ fn parse_uda_crc(attrs: &str) -> Option<u64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_crc_tolerant() {
+        assert_eq!(
+            parse_uda_crc("199 UDMA_CRC_Error_Count 0x0032 100 100 000 old 12"),
+            Some(12)
+        );
+        assert_eq!(parse_uda_crc("garbage\nline"), None);
+        assert_eq!(parse_uda_crc(""), None);
+    }
 }
