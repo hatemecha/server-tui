@@ -20,8 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Report/config/state files created as `0600`, dirs `0700`
 - Product UI/error strings English-only (`AppError::user_message`, systemd permission maps)
 - Sudo elevation re-checks known-unit registry; typed `ServiceActionKind` on trusted argv
-- MSRV raised to **1.85** (lockfile deps such as clap 4.6 require edition 2024 Cargo)
+- MSRV raised to **1.95** (lockfile: sysinfo / ratatui / zbus floors)
 - CI/release Actions pins switched to resolvable major tags after broken SHA lookups
+- `deny.toml` advisories schema updated for current cargo-deny
 
 ### Changed
 

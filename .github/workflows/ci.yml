@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (zbus / D-Bus)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -45,10 +48,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install MSRV 1.85
+      - name: Install system deps (zbus / D-Bus)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Install MSRV 1.95
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.85"
+          toolchain: "1.95"
       - name: Check MSRV
         run: cargo check --locked
 
@@ -60,6 +65,8 @@ jobs:
       LC_ALL: C
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps (zbus / D-Bus)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - name: Render smoke under TTY16-like env
         run: cargo test --test render_smoke

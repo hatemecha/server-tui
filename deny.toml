@@ -1,13 +1,13 @@
 # Cargo deny configuration (licenses / bans / sources).
+# Schema aligned with current cargo-deny advisories config.
 
 [graph]
 all-features = true
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+# Scope for unmaintained crates: all | workspace | transitive | none
+unmaintained = "workspace"
 yanked = "warn"
-notice = "warn"
 
 [licenses]
 unlicensed = "deny"
