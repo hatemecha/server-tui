@@ -92,7 +92,7 @@ jobs:
           # At least the supported gnu asset must exist.
           test -n "$(find release -type f -name '*x86_64-unknown-linux-gnu.tar.gz' | head -1)"
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true
