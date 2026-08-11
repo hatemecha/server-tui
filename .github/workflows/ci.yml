@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-22.04, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -24,7 +24,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@9d47c6ad4b8e538627bd60ee391fe4fbbb3c869b # v2.7.8
+        uses: Swatinem/rust-cache@v2
 
       - name: Format
         run: cargo fmt --all --check
@@ -44,11 +44,11 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Install MSRV 1.81
+      - uses: actions/checkout@v4
+      - name: Install MSRV 1.85
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.81"
+          toolchain: "1.85"
       - name: Check MSRV
         run: cargo check --locked
 
@@ -59,7 +59,7 @@ jobs:
       NO_COLOR: "1"
       LC_ALL: C
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Render smoke under TTY16-like env
         run: cargo test --test render_smoke
@@ -67,5 +67,5 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31f74717fb496ad1794fa # v2.0.11
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/hatemecha/server-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/hatemecha/server-tui/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![MSRV](https://img.shields.io/badge/MSRV-1.81-orange.svg)](Cargo.toml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.85-orange.svg)](Cargo.toml)
 [![version](https://img.shields.io/badge/version-0.3.1-informational.svg)](CHANGELOG.md)
 
 <!-- Demo GIF: generate with `vhs docs/assets/demo.tape` when vhs is available; do not link a missing gif. -->

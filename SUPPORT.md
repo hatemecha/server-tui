@@ -15,7 +15,7 @@ This is a personal project. Support is **best effort** and not a paid SLA.
 
 - Bugs that crash the TUI or leave the terminal broken
 - False permissions handling / `--read-only` bypass
-- Build/CI failures on platforms CI actually covers (Ubuntu runners in `.github/workflows/ci.yml`, MSRV 1.81)
+- Build/CI failures on platforms CI actually covers (Ubuntu runners in `.github/workflows/ci.yml`, MSRV 1.85)
 
 ## What is out of scope
 
