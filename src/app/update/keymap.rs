@@ -82,7 +82,7 @@ fn map_dialog_key(state: &AppState, dialog: &Dialog, key: KeyEvent) -> Option<Ap
         | Dialog::ConfirmResetSettings { .. }
         | Dialog::ConfirmCompleteOnboarding { .. } => match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') => Some(AppAction::Cancel),
-            KeyCode::Char('y') => Some(AppAction::Confirm),
+            KeyCode::Char('y') => Some(AppAction::ConfirmYes),
             KeyCode::Left | KeyCode::BackTab => Some(AppAction::ConfirmFocusLeft),
             KeyCode::Right | KeyCode::Tab => Some(AppAction::ConfirmFocusRight),
             KeyCode::Enter => Some(AppAction::Confirm),

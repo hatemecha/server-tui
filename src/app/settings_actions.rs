@@ -2,7 +2,7 @@
 
 use crate::app::action::{AppAction, ConfirmChoice};
 use crate::app::state::{AppState, Dialog};
-use crate::app::update::SideEffect;
+use crate::app::update::{ConfigSaveReason, SideEffect};
 use crate::settings::{rows_for_section, SettingId, SettingRow};
 
 pub fn apply_settings_action(state: &mut AppState, action: &AppAction) -> Option<Vec<SideEffect>> {
@@ -17,26 +17,19 @@ pub fn apply_settings_action(state: &mut AppState, action: &AppAction) -> Option
             state.config.terminal_profile = state.terminal_profile;
             state.config.performance_profile = state.performance_profile;
             state.config.wallboard_default = state.wallboard;
-            match state.config.save_atomic(&state.config_path) {
-                Ok(()) => {
-                    state.settings.onboarding_pending = false;
-                    state.set_success(format!(
-                        "settings saved → {}",
-                        crate::sanitize::sanitize_path_display(&state.config_path)
-                    ));
-                }
-                Err(e) => state.set_error(e),
-            }
-            Some(vec![SideEffect::PublishConfig])
+            state.settings.onboarding_pending = false;
+            Some(vec![SideEffect::SaveConfig {
+                path: state.config_path.clone(),
+                config: state.config.clone(),
+                reason: ConfigSaveReason::Settings,
+                harden_parent: state.config_dir_owned,
+            }])
         }
         AppAction::CycleTerminalProfile => {
             cycle_terminal(state, 1);
             Some(Vec::new())
         }
-        AppAction::CyclePerformanceProfile => {
-            cycle_performance(state, 1);
-            Some(vec![SideEffect::PublishConfig])
-        }
+        AppAction::CyclePerformanceProfile => Some(cycle_performance(state, 1)),
         AppAction::ToggleSetting(id) => {
             toggle_bool(state, *id);
             Some(Vec::new())
@@ -180,12 +173,17 @@ fn cycle_performance(state: &mut AppState, delta: i8) -> Vec<SideEffect> {
         state.performance_profile.next()
     };
     state.config.performance_profile = state.performance_profile;
-    apply_performance(state);
+    state.runtime_config = state.config.effective(state.performance_profile);
+    state
+        .history
+        .resize(state.runtime_config.metric_history_size);
     state.set_status(format!(
         "performance profile: {}",
         state.performance_profile.label()
     ));
-    vec![SideEffect::PublishConfig]
+    vec![SideEffect::PublishRuntimeConfig(
+        state.runtime_config.clone(),
+    )]
 }
 
 fn cycle_log_preset(state: &mut AppState, delta: i8) {
@@ -198,15 +196,6 @@ fn cycle_log_preset(state: &mut AppState, delta: i8) {
         state.log.min_priority = crate::model::LogPriority::Warning;
     }
     state.set_status(format!("log preset: {}", state.log.preset.label()));
-}
-
-fn apply_performance(state: &mut AppState) {
-    let scale = state.performance_profile.refresh_scale();
-    let base = 1000u64;
-    state.config.refresh_ms = ((base as f64) * scale) as u64;
-    state.config.metric_history_size = state
-        .performance_profile
-        .history_size(state.config.metric_history_size);
 }
 
 /// Shared read of checkbox state for the UI.

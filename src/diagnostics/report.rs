@@ -1,4 +1,4 @@
-//! Human/JSON diagnostic report formatting (redacted by default).
+//! Human/JSON diagnostic report formatting (detailed evidence omitted by default).
 
 use crate::model::{Finding, HealthStatus};
 

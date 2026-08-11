@@ -25,7 +25,10 @@ pub fn process_menu(state: &AppState) -> Vec<MenuItem> {
         MenuItem::enabled("Open related logs", MenuAction::ProcessLogs),
         MenuItem::enabled("Jump to service (if unit)", MenuAction::ProcessService),
         MenuItem::enabled("Diagnostics", MenuAction::ProcessDiagnostics),
-        MenuItem::enabled("Export context (redacted)", MenuAction::ProcessExport),
+        MenuItem::enabled(
+            "Export context (command argv0 only)",
+            MenuAction::ProcessExport,
+        ),
     ];
     if state.read_only {
         items.push(MenuItem::disabled(
@@ -182,6 +185,7 @@ mod tests {
             true,
             false,
             PathBuf::from("/tmp"),
+            Config::default_path(),
         );
         let m = process_menu(&state);
         assert!(m.iter().any(|i| !i.enabled && i.label.contains("SIGTERM")));

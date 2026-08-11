@@ -26,7 +26,7 @@ pub struct Cli {
     #[arg(long)]
     pub read_only: bool,
 
-    /// Wallboard mode: dashboard focus, less chrome, efficient refresh.
+    /// Dashboard-focused presentation mode for persistent console display.
     #[arg(long)]
     pub wallboard: bool,
 
@@ -46,7 +46,7 @@ pub struct Cli {
     #[arg(long, value_name = "PROFILE", value_parser = parse_terminal_profile)]
     pub terminal_profile: Option<TerminalProfile>,
 
-    /// Refresh / history aggressiveness.
+    /// Periodic refresh, provider-cache, and history policy.
     #[arg(long, value_name = "PROFILE", value_parser = parse_performance_profile)]
     pub performance_profile: Option<PerformanceProfile>,
 
@@ -78,7 +78,7 @@ fn parse_performance_profile(s: &str) -> Result<PerformanceProfile, String> {
 pub enum Commands {
     /// Run one-shot host diagnostics and exit.
     Doctor(DoctorArgs),
-    /// Generate a redacted support report.
+    /// Generate a shareable support report with documented privacy reductions.
     Support(SupportArgs),
     /// Host setup helpers (console unit generator).
     Setup {
@@ -94,6 +94,7 @@ pub struct SupportArgs {
     #[arg(long, value_name = "PATH")]
     pub output: Option<PathBuf>,
     #[arg(long)]
+    /// Disable shareable-mode privacy reductions and include full host values.
     pub include_sensitive: bool,
     #[arg(long)]
     pub demo: bool,

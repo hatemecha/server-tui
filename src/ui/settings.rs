@@ -165,8 +165,8 @@ fn detail_footer(state: &AppState) -> String {
         ),
         1 => format!("ascii (cli): {}", state.ascii),
         2 => format!(
-            "refresh_ms: {} · history: {}",
-            state.config.refresh_ms, state.config.metric_history_size
+            "effective refresh_ms: {} · history: {}",
+            state.runtime_config.refresh_ms, state.runtime_config.metric_history_size
         ),
         3 => format!("activity events: {}", state.activity.len()),
         4 => format!(
@@ -181,7 +181,7 @@ fn detail_footer(state: &AppState) -> String {
             format!(
                 "{}\nWould write: {}\nretention days: {}",
                 setup::status_text(&spec),
-                unit.display(),
+                crate::sanitize::sanitize_path_display(&unit),
                 state.config.report_retention_days
             )
         }

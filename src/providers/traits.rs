@@ -14,6 +14,9 @@ use crate::model::{
 #[async_trait]
 pub trait MetricsProvider: Send + Sync {
     async fn collect(&self) -> Result<SystemMetrics, AppError>;
+
+    /// Update cache TTLs after a runtime profile change.
+    fn update_refresh_policy(&self, _config: &crate::config::Config) {}
 }
 
 #[async_trait]

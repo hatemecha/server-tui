@@ -19,7 +19,7 @@ Complements resource monitors by also covering systemd, journal, storage, and di
 
 - **Observe first** — CPU/mem/net, processes, systemd units, journal, storage tree, diagnostics findings
 - **Typed admin actions** — SIGTERM/KILL/STOP/CONT and systemctl start/stop/restart/reload/enable/disable with confirmations (default Cancel)
-- **Safe defaults** — `--read-only`, `--demo`, redacted support reports, no telemetry
+- **Safe defaults** — `--read-only`, `--demo`, shareable support reports, no telemetry
 - **Old-server friendly** — `--ascii`, `--no-color`, `--terminal-profile tty16`, `--performance-profile low-resource`
 
 ## Status
@@ -64,6 +64,10 @@ server-tui setup console --status
 ```
 
 Useful flags: `--wallboard`, `--terminal-profile modern|tty16|high-contrast|monochrome`, `--performance-profile low-resource|balanced|responsive`, `--ascii`, `--no-color`.
+
+Wallboard is presentation-only; on older hosts use `server-tui --wallboard --performance-profile low-resource`. A custom `--config PATH` is preserved for Settings saves. Persisted values receive explicit CLI overrides, then the selected performance profile derives one effective runtime polling/cache/history policy.
+
+Support reports default to shareable mode: recognized hostname, username, IP and home paths are reduced and command arguments omitted. PIDs, findings, and non-identity portions of process/unit names remain; review because unit names may identify workloads. `--include-sensitive` opts into full values.
 
 ## Safety
 

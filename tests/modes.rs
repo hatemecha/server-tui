@@ -52,6 +52,7 @@ fn confirmations_required_path_opens_dialog() {
         true,
         false,
         PathBuf::from("/tmp"),
+        Config::default_path(),
     );
     state.screen = server_tui::app::Screen::Processes;
     state.process.items.push(ProcessInfo {

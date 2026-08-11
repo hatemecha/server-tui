@@ -71,6 +71,8 @@ pub enum AppAction {
     StartStorageScan(Option<PathBuf>),
     CancelStorageScan,
     Confirm,
+    /// Explicit affirmative confirmation, independent of focused button.
+    ConfirmYes,
     Cancel,
     ConfirmFocusLeft,
     ConfirmFocusRight,

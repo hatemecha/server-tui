@@ -11,6 +11,8 @@ This is a personal project. Support is **best effort** and not a paid SLA.
 3. Check [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) and [TESTING.md](TESTING.md) for expected smoke commands.
 4. Open a GitHub issue with: OS/distro, `server-tui --version`, command line used, and what you expected vs observed.
 
+Generate a shareable report with `server-tui support --format markdown`. By default it masks recognized host/user/IP/home-path information and omits command arguments. PIDs, findings, and non-identity portions of process/systemd unit names remain for troubleshooting, and unit names can identify workloads. Review before sharing. `--include-sensitive` disables these privacy reductions and should be used only deliberately.
+
 ## What is in scope
 
 - Bugs that crash the TUI or leave the terminal broken

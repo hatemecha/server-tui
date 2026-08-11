@@ -48,7 +48,7 @@ fn scan_blocking(
     if !root.exists() {
         return Err(AppError::Storage(format!(
             "path does not exist: {}",
-            root.display()
+            crate::sanitize::sanitize_path_display(&root)
         )));
     }
 

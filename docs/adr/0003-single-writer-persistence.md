@@ -10,7 +10,7 @@ Multiple writers to `state.toml` (notably SMART probes) race and blur ownership.
 
 ## Decision
 
-Providers emit observations only. The runtime/app merges into `AppPersistState` and performs the only atomic save (0600 / 0700).
+Providers emit observations only. The reducer accepts current-generation observations and emits a typed save side effect; runtime performs the only atomic save (`0600` file in an explicitly app-owned `0700` directory).
 
 ## Consequences
 

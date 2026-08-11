@@ -27,10 +27,13 @@ cargo run -- --scan-path "$HOME"
 - Process filter/sort/`visible_processes` + selection after sort change
 - Service filters + `UnitFileState` parsing
 - Sanitization including `sanitize_path_display`
-- Confirm dialog defaults to Cancel; read-only blocks signals
+- Every confirm dialog defaults to Cancel; `y` is explicit Yes, Enter honors focus, and `n`/Esc cancel
 - Demo providers never require root
 - Diagnostic evaluator fixtures (OOM, temp wording, no false panic, health Unknown without required probes)
-- Report redaction (JSON without sensitive details by default)
+- Shareable/full report policy, free-text identity/IP reduction, Markdown injection resistance, valid JSON
+- Atomic `0600` writes preserve user-parent modes, use collision-safe temps, and leave no temp files; explicit app-owned dirs are `0700`
+- Deterministic stale-result ordering for storage, logs/follow, diagnostics/SMART persistence, service/process details, preview and PPID maps
+- Custom config path typed save boundary; profile derivation/order and history resize
 - XDG state.toml atomic roundtrip (incl. SMART CRC counters)
 - Safe file preview (symlink refuse, binary detect, 64KiB cap)
 - Console unit DryRunFs install/remove (no host writes)

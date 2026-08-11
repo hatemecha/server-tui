@@ -13,7 +13,7 @@ use crate::APP_NAME;
 
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {
-    /// Print a redacted text report (default when not --json).
+    /// Print a summary text report with detailed evidence omitted by default.
     #[arg(long)]
     pub report: bool,
 
@@ -21,7 +21,7 @@ pub struct DoctorArgs {
     #[arg(long)]
     pub json: bool,
 
-    /// Include unredacted evidence details (may contain sensitive paths).
+    /// Include full evidence details (may contain sensitive host values and paths).
     #[arg(long)]
     pub include_sensitive: bool,
 

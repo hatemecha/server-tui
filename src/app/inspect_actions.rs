@@ -4,7 +4,10 @@ use crate::app::action::{AppAction, ConfirmChoice, Screen};
 use crate::app::menus::{finding_menu, log_menu, process_menu, service_menu};
 use crate::app::settings_actions::apply_settings_action;
 use crate::app::state::{AppState, Dialog};
-use crate::app::update::SideEffect;
+use crate::app::update::{
+    begin_diagnostics, begin_log_refresh, begin_ppid_map, begin_preview, begin_process_details,
+    begin_service_details, SideEffect,
+};
 use crate::model::{filter_services, ExportFormat, MenuAction, ServiceFilter};
 use crate::status::ToastKind;
 use crate::support::{redact_cmd, SupportFormat};
@@ -46,9 +49,10 @@ pub fn apply_inspect_action(state: &mut AppState, action: &AppAction) -> Option<
             state.process.tree_mode = !state.process.tree_mode;
             let mut effects = Vec::new();
             if state.process.tree_mode {
-                effects.push(SideEffect::FetchPpidMap);
+                effects.push(begin_ppid_map(state));
                 state.set_status("tree view on (fetching parents)");
             } else {
+                state.process.ppid_request = None;
                 state.set_status("tree view off");
             }
             Some(effects)
@@ -62,7 +66,7 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
     match state.screen {
         Screen::Processes => {
             if let Some(pid) = state.process.selected_pid {
-                effects.push(SideEffect::FetchProcessDetails { pid });
+                effects.push(begin_process_details(state, pid));
                 state.set_toast(
                     ToastKind::Progress,
                     format!("loading details for PID {pid}"),
@@ -72,8 +76,8 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
         Screen::Services => {
             if let Some(unit) = state.service.selected_unit.clone() {
                 state.service.pending_inspect = true;
-                effects.push(SideEffect::FetchServiceDetails { unit: unit.clone() });
-                effects.push(SideEffect::RefreshLogs { unit: Some(unit) });
+                effects.push(begin_service_details(state, unit.clone()));
+                effects.push(begin_log_refresh(state, Some(unit)));
                 state.set_toast(ToastKind::Progress, "loading service details");
             }
         }
@@ -110,16 +114,15 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
                             title: format!("Dir {}", node.name),
                             body: format!(
                                 "path: {}\nsize: {}\napparent: {}\nchildren: {}",
-                                node.path.display(),
+                                crate::sanitize::sanitize_path_display(&node.path),
                                 crate::model::format_size(node.size),
                                 crate::model::format_size(node.apparent_size),
                                 node.children.len()
                             ),
                         });
                     } else {
-                        effects.push(SideEffect::PreviewFile {
-                            path: node.path.clone(),
-                        });
+                        let path = node.path.clone();
+                        effects.push(begin_preview(state, path));
                         state.set_toast(ToastKind::Progress, "previewing file");
                     }
                 }
@@ -128,9 +131,8 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
                 if let Some(tree) = state.storage.tree.as_ref() {
                     let files = crate::preview::largest_files_from_tree(&tree.root, 50);
                     if let Some(node) = files.get(state.storage_selected()).copied() {
-                        effects.push(SideEffect::PreviewFile {
-                            path: node.path.clone(),
-                        });
+                        let path = node.path.clone();
+                        effects.push(begin_preview(state, path));
                     }
                 }
             }
@@ -176,7 +178,7 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
         }
         Screen::Dashboard => {
             state.screen = Screen::Diagnostics;
-            effects.push(SideEffect::RefreshDiagnostics);
+            effects.push(begin_diagnostics(state));
         }
         Screen::Settings => {}
     }
@@ -246,7 +248,7 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
             if let Some(unit) = state.process.details.as_ref().and_then(|d| d.unit.clone()) {
                 state.log.unit = Some(unit.clone());
                 state.screen = Screen::Logs;
-                vec![SideEffect::RefreshLogs { unit: Some(unit) }]
+                vec![begin_log_refresh(state, Some(unit))]
             } else {
                 state.set_warning("no unit associated with process");
                 Vec::new()
@@ -263,7 +265,7 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
         }
         MenuAction::ProcessDiagnostics | MenuAction::ServiceDiagnostics => {
             state.screen = Screen::Diagnostics;
-            vec![SideEffect::RefreshDiagnostics]
+            vec![begin_diagnostics(state)]
         }
         MenuAction::ProcessExport => export_process(state),
         MenuAction::ServiceExport => export_service(state),
@@ -271,7 +273,7 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
             if let Some(unit) = state.service.selected_unit.clone() {
                 state.log.unit = Some(unit.clone());
                 state.screen = Screen::Logs;
-                vec![SideEffect::RefreshLogs { unit: Some(unit) }]
+                vec![begin_log_refresh(state, Some(unit))]
             } else {
                 Vec::new()
             }
@@ -346,7 +348,7 @@ fn export_process(state: &mut AppState) -> Vec<SideEffect> {
     };
     let details = state.process.details.as_ref();
     let body = format!(
-        "# process export (redacted)\npid: {}\nuser: {}\nname: {}\ncmd: {}\ncpu: {:.1}\nmem: {}\nstate: {}\n{}\n",
+        "# process export (command arguments omitted)\npid: {}\nuser: {}\nname: {}\ncmd: {}\ncpu: {:.1}\nmem: {}\nstate: {}\n{}\n",
         p.pid,
         p.user,
         p.name,

@@ -75,6 +75,13 @@ async fn run(cli: Cli) -> Result<(), AppError> {
     if cli.ascii {
         config.unicode = false;
     }
+    if let Some(profile) = cli.performance_profile {
+        config.performance_profile = profile;
+    }
+    if let Some(profile) = cli.terminal_profile {
+        config.terminal_profile = profile;
+    }
+    let effective_config = config.effective(config.performance_profile);
 
     let color = cli.color_enabled(config.color);
     let scan_path = cli
@@ -85,7 +92,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
     let providers = if cli.demo {
         DemoProviders::bundle(cli.read_only)
     } else {
-        linux_bundle(cli.read_only, &config)
+        linux_bundle(cli.read_only, &effective_config)
     };
 
     let mut state = AppState::new(
@@ -95,24 +102,12 @@ async fn run(cli: Cli) -> Result<(), AppError> {
         color,
         cli.ascii || !config.unicode,
         scan_path,
+        cfg_path.clone(),
     );
-    state.terminal_profile = cli
-        .terminal_profile
-        .unwrap_or(config.terminal_profile)
-        .resolve(color);
-    state.performance_profile = cli
-        .performance_profile
-        .unwrap_or(config.performance_profile);
+    state.config_dir_owned = cli.config.is_none();
+    state.terminal_profile = config.terminal_profile.resolve(color);
+    state.performance_profile = config.performance_profile;
     state.wallboard = cli.wallboard || config.wallboard_default;
-    // Apply full performance profile scale (not only LowResource).
-    {
-        let scale = state.performance_profile.refresh_scale();
-        let base = config.refresh_ms.max(250);
-        state.config.refresh_ms = ((base as f64) * scale) as u64;
-        state.config.metric_history_size = state
-            .performance_profile
-            .history_size(config.metric_history_size);
-    }
     if state.wallboard {
         state.screen = server_tui::app::Screen::Dashboard;
         state.set_status("WALLBOARD: dashboard mode (w to toggle)");
@@ -134,7 +129,7 @@ async fn run(cli: Cli) -> Result<(), AppError> {
     }
 
     let mut terminal = TerminalGuard::enter()?;
-    let result = run_loop(&mut terminal, &mut state, providers, config).await;
+    let result = run_loop(&mut terminal, &mut state, providers, effective_config).await;
     terminal.restore()?;
     result
 }
@@ -174,7 +169,7 @@ async fn run_support_cli(args: SupportArgs) -> i32 {
     match render(&report, fmt) {
         Ok(body) => match save_report(&body, fmt, args.output.as_deref()) {
             Ok(path) => {
-                println!("{}", path.display());
+                println!("{}", server_tui::sanitize::sanitize_path_display(&path));
                 0
             }
             Err(e) => {
@@ -192,13 +187,7 @@ async fn run_support_cli(args: SupportArgs) -> i32 {
 fn init_logging(path: Option<&PathBuf>) -> Result<(), AppError> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     if let Some(path) = path {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
+        let file = server_tui::fsutil::open_private_append(path)
             .map_err(|e| AppError::Internal(format!("debug log: {e}")))?;
         tracing_subscriber::fmt()
             .with_env_filter(filter)

@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::app::event::RequestId;
 use crate::model::{
     Finding, LogBuffer, LogPriority, ProcessInfo, ProcessSort, ServiceFilter, ServiceInfo,
     StorageProgress, StorageSort, StorageTree,
@@ -27,6 +28,8 @@ pub struct ProcessState {
     pub show_full_cmd: bool,
     pub details: Option<crate::model::ProcessDetails>,
     pub ppids: Vec<(u32, Option<u32>)>,
+    pub details_request: Option<(RequestId, u32)>,
+    pub ppid_request: Option<RequestId>,
 }
 
 impl ProcessState {
@@ -41,6 +44,8 @@ impl ProcessState {
             show_full_cmd: false,
             details: None,
             ppids: Vec::new(),
+            details_request: None,
+            ppid_request: None,
         }
     }
 }
@@ -60,6 +65,7 @@ pub struct ServiceState {
     pub failed_only: bool,
     pub recent_logs: Vec<crate::model::LogEntry>,
     pub pending_inspect: bool,
+    pub details_request: Option<(RequestId, String)>,
 }
 
 impl ServiceState {
@@ -72,6 +78,7 @@ impl ServiceState {
             failed_only: false,
             recent_logs: Vec::new(),
             pending_inspect: false,
+            details_request: None,
         }
     }
 }
@@ -92,6 +99,8 @@ pub struct LogState {
     pub vp: ViewportState,
     pub match_idx: Option<usize>,
     pub preset: crate::model::LogPreset,
+    pub refresh_request: Option<(RequestId, Option<String>, crate::model::LogPreset)>,
+    pub follow_session: Option<(RequestId, Option<String>)>,
 }
 
 impl LogState {
@@ -105,6 +114,8 @@ impl LogState {
             vp: ViewportState::new(),
             match_idx: None,
             preset: crate::model::LogPreset::default(),
+            refresh_request: None,
+            follow_session: None,
         }
     }
 }
@@ -122,6 +133,8 @@ pub struct StorageState {
     pub use_apparent: bool,
     pub stay_on_fs: bool,
     pub file_preview: Option<crate::model::FilePreview>,
+    pub scan_request: Option<RequestId>,
+    pub preview_request: Option<(RequestId, PathBuf)>,
 }
 
 impl StorageState {
@@ -138,6 +151,8 @@ impl StorageState {
             use_apparent: false,
             stay_on_fs,
             file_preview: None,
+            scan_request: None,
+            preview_request: None,
         }
     }
 }
@@ -149,6 +164,7 @@ pub struct DiagnosticState {
     pub deep: bool,
     pub running: bool,
     pub report: Option<String>,
+    pub request: Option<RequestId>,
 }
 
 impl DiagnosticState {
@@ -159,6 +175,7 @@ impl DiagnosticState {
             deep: false,
             running: false,
             report: None,
+            request: None,
         }
     }
 }

@@ -20,6 +20,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Confirm dialogs use filled Title-Case buttons instead of `[ CANCEL ]` / `[ YES ]` brackets
 - `doctor --demo` / `support --demo` use fixed HMixed dataset (no longer empty “healthy” from tick 0)
 - Support markdown includes demo/read_only flags, failed services, and empty-section placeholders
+- Atomic private-file writes no longer chmod user-selected parent directories; unique exclusive temp siblings, file/parent sync, cleanup, private debug logs, and collision-resistant report names
+- Replaceable async storage/log/diagnostic/detail work rejects stale success and failure events by request generation; diagnostic SMART observations are accepted atomically with their run
+- Log buffer refresh is not cancelled by Move/Search navigation (only selection-scoped detail/preview generations are)
+- Settings preserves an explicit `--config` path and performs config/state writes through runtime side effects
+- Performance profiles derive one non-compounding effective policy used by providers, pollers, tick timing and resizable history; wallboard remains presentational
+- `y` explicitly confirms every confirmation dialog while Enter continues to honor the focused default Cancel choice
+- Shareable support reports consistently reduce recognized host/user/home/IP values and command arguments, with Markdown-specific injection escaping
 
 ### Added
 
@@ -36,7 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Export I/O moved to `SideEffect::SaveReport` (no reducer filesystem writes)
 - SMART probes no longer write `state.toml` (runtime merges CRC observations)
 - File preview opens with `O_NOFOLLOW` + fd re-validation
-- Report/config/state files created as `0600`, dirs `0700`
+- Report/config/state files created as `0600`; only explicitly app-owned directories are hardened to `0700`
 - Product UI/error strings English-only (`AppError::user_message`, systemd permission maps)
 - Sudo elevation re-checks known-unit registry; typed `ServiceActionKind` on trusted argv
 - MSRV raised to **1.95** (lockfile: sysinfo / ratatui / zbus floors)

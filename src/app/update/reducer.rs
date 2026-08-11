@@ -6,17 +6,36 @@ use crate::app::update::navigation::{
     clamp_selection_to_visible, enter_storage_dir, maybe_confirm_service, maybe_confirm_signal,
     move_selection, selected_service_unit, set_selection, step_log_match,
 };
-use crate::app::update::side_effect::SideEffect;
+use crate::app::update::side_effect::{
+    begin_current_follow, begin_current_log_refresh, begin_current_scan, begin_diagnostics,
+    begin_log_refresh, begin_scan, SideEffect,
+};
 use crate::model::{preserve_selection, ProcessSignal, ServiceActionKind, ServiceFilter};
 
 pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> {
     let mut effects = Vec::new();
+    if matches!(
+        action,
+        AppAction::MoveUp
+            | AppAction::MoveDown
+            | AppAction::PageUp
+            | AppAction::PageDown
+            | AppAction::Home
+            | AppAction::End
+            | AppAction::SearchInput(_)
+            | AppAction::SearchBackspace
+            | AppAction::ClearSearch
+    ) {
+        invalidate_selection_context(state);
+    }
     match action {
         AppAction::Quit => state.should_quit = true,
         AppAction::ChangeScreen(screen) => {
+            invalidate_selection_context(state);
             let leaving_logs = state.screen == Screen::Logs && screen != Screen::Logs;
             if leaving_logs && state.log.follow {
                 state.log.follow = false;
+                state.log.follow_session = None;
                 effects.push(SideEffect::StopFollow);
             }
             state.screen = screen;
@@ -25,19 +44,14 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 && state.storage.tree.is_none()
                 && state.storage.scan_state == ScanState::Idle
             {
-                effects.push(SideEffect::StartScan {
-                    path: state.storage.scan_path.clone(),
-                });
+                effects.push(begin_current_scan(state));
                 state.storage.scan_state = ScanState::Running;
             }
             if screen == Screen::Logs {
-                effects.push(SideEffect::RefreshLogs {
-                    unit: state.log.unit.clone(),
-                });
+                effects.push(begin_current_log_refresh(state));
             }
             if screen == Screen::Diagnostics {
-                effects.push(SideEffect::RefreshDiagnostics);
-                state.diagnostic.running = true;
+                effects.push(begin_diagnostics(state));
             }
             if screen == Screen::Settings {
                 state.focus = FocusPane::Content;
@@ -48,18 +62,13 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
             Screen::Dashboard => effects.push(SideEffect::RefreshMetrics),
             Screen::Processes => effects.push(SideEffect::RefreshProcesses),
             Screen::Services => effects.push(SideEffect::RefreshServices),
-            Screen::Logs => effects.push(SideEffect::RefreshLogs {
-                unit: state.log.unit.clone(),
-            }),
+            Screen::Logs => effects.push(begin_current_log_refresh(state)),
             Screen::Storage => {
-                effects.push(SideEffect::StartScan {
-                    path: state.storage.scan_path.clone(),
-                });
+                effects.push(begin_current_scan(state));
                 state.storage.scan_state = ScanState::Running;
             }
             Screen::Diagnostics => {
-                state.diagnostic.running = true;
-                effects.push(SideEffect::RefreshDiagnostics);
+                effects.push(begin_diagnostics(state));
             }
             Screen::Settings => state.set_status("settings"),
         },
@@ -166,10 +175,9 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         AppAction::ToggleFollow => {
             state.log.follow = !state.log.follow;
             if state.log.follow {
-                effects.push(SideEffect::StartFollow {
-                    unit: state.log.unit.clone(),
-                });
+                effects.push(begin_current_follow(state));
             } else {
+                state.log.follow_session = None;
                 effects.push(SideEffect::StopFollow);
             }
         }
@@ -232,7 +240,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 state.log.unit = Some(unit.clone());
                 state.screen = Screen::Logs;
                 state.log.buffer.clear();
-                effects.push(SideEffect::RefreshLogs { unit: Some(unit) });
+                effects.push(begin_log_refresh(state, Some(unit)));
             }
         }
         AppAction::SignalTerm => {
@@ -250,11 +258,12 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
             state.storage.scan_path = path.clone();
             state.storage.scan_state = ScanState::Running;
             state.storage.cwd.clear();
-            effects.push(SideEffect::StartScan { path });
+            effects.push(begin_scan(state, path));
         }
         AppAction::CancelStorageScan => {
             if state.storage.scan_state == ScanState::Running {
                 state.storage.scan_state = ScanState::Cancelled;
+                state.storage.scan_request = None;
                 effects.push(SideEffect::CancelScan);
                 state.set_status("scan cancel requested");
             }
@@ -271,7 +280,19 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 *choice = choice.toggle();
             }
         }
-        AppAction::Confirm => {
+        AppAction::Confirm | AppAction::ConfirmYes => {
+            if matches!(action, AppAction::ConfirmYes) {
+                if let Some(
+                    Dialog::ConfirmSignal { choice, .. }
+                    | Dialog::ConfirmService { choice, .. }
+                    | Dialog::ConfirmElevation { choice, .. }
+                    | Dialog::ConfirmResetSettings { choice }
+                    | Dialog::ConfirmCompleteOnboarding { choice },
+                ) = state.dialog.as_mut()
+                {
+                    *choice = ConfirmChoice::Yes;
+                }
+            }
             if let Some(dialog) = state.dialog.take() {
                 match dialog {
                     Dialog::ConfirmService {
@@ -310,23 +331,32 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                         state.config = crate::config::Config::default();
                         state.terminal_profile = state.config.terminal_profile;
                         state.performance_profile = state.config.performance_profile;
-                        if let Err(e) = state.config.save_atomic(&path) {
-                            state.set_error(e);
-                        } else {
-                            state.set_success("settings reset to defaults");
-                        }
+                        state.runtime_config = state.config.effective(state.performance_profile);
+                        state
+                            .history
+                            .resize(state.runtime_config.metric_history_size);
+                        effects.push(SideEffect::PublishRuntimeConfig(
+                            state.runtime_config.clone(),
+                        ));
+                        effects.push(SideEffect::SaveConfig {
+                            path,
+                            config: state.config.clone(),
+                            reason: crate::app::update::ConfigSaveReason::Reset,
+                            harden_parent: state.config_dir_owned,
+                        });
                     }
                     Dialog::ConfirmCompleteOnboarding {
                         choice: ConfirmChoice::Yes,
                     } => {
                         state.config.onboarding_completed = true;
                         state.settings.onboarding_pending = false;
-                        if let Err(e) = state.config.save_atomic(&state.config_path.clone()) {
-                            state.set_error(e);
-                        } else {
-                            state.set_success("onboarding completed");
-                            state.screen = Screen::Dashboard;
-                        }
+                        state.screen = Screen::Dashboard;
+                        effects.push(SideEffect::SaveConfig {
+                            path: state.config_path.clone(),
+                            config: state.config.clone(),
+                            reason: crate::app::update::ConfigSaveReason::Onboarding,
+                            harden_parent: state.config_dir_owned,
+                        });
                     }
                     _ => {}
                 }
@@ -369,8 +399,11 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 .map(|f| f.id.clone());
             if let Some(id) = id {
                 state.persist.acknowledge(&id);
-                state.save_persist();
                 state.set_status(format!("acknowledged {id}"));
+                effects.push(SideEffect::SavePersist {
+                    path: state.persist_path.clone(),
+                    persist: state.persist.clone(),
+                });
             }
         }
         AppAction::FollowDiagnosticTarget => {
@@ -389,9 +422,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 state.screen = screen;
                 state.searching = false;
                 if screen == Screen::Logs {
-                    effects.push(SideEffect::RefreshLogs {
-                        unit: state.log.unit.clone(),
-                    });
+                    effects.push(begin_current_log_refresh(state));
                 }
             }
         }
@@ -433,9 +464,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
             }
             state.log.buffer.clear();
             state.set_status(format!("log preset: {}", state.log.preset.label()));
-            effects.push(SideEffect::RefreshLogs {
-                unit: state.log.unit.clone(),
-            });
+            effects.push(begin_current_log_refresh(state));
         }
         AppAction::CycleStorageTab => {
             state.storage.tab = state.storage.tab.next();
@@ -445,7 +474,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         AppAction::DeepDiagnostics => {
             state.diagnostic.deep = true;
             state.set_status("deep diagnostics requested");
-            effects.push(SideEffect::RefreshDiagnostics);
+            effects.push(begin_diagnostics(state));
         }
         AppAction::SettingsMove => {}
         AppAction::SignalStop => {
@@ -482,4 +511,17 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         }
     }
     effects
+}
+
+fn invalidate_selection_context(state: &mut AppState) {
+    match state.screen {
+        Screen::Processes => state.process.details_request = None,
+        Screen::Services => {
+            state.service.details_request = None;
+            state.service.pending_inspect = false;
+        }
+        Screen::Storage => state.storage.preview_request = None,
+        // Log refresh covers the whole buffer, not the current selection/filter cursor.
+        Screen::Dashboard | Screen::Logs | Screen::Diagnostics | Screen::Settings => {}
+    }
 }

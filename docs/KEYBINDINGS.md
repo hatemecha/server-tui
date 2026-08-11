@@ -14,6 +14,8 @@
 | `?` | Help |
 | `q` / `Ctrl+C` | Quit |
 
+All confirmation dialogs start on Cancel. Left/Right/Tab moves focus, Enter activates focus, `y` explicitly chooses Yes, and `n`/Esc cancels.
+
 ## Processes
 
 | Key | Action |
@@ -25,7 +27,7 @@
 | `m` | Action menu (follow, tree, signals, export, …) |
 | `F` / `T` | Follow selected PID / tree view (on-demand parents) |
 | `t` / `K` / `z` / `Z` | SIGTERM / SIGKILL / SIGSTOP / SIGCONT (confirm) |
-| `e` | Export process context (redacted) |
+| `e` | Export process context (command arguments omitted) |
 
 ## Services
 
@@ -99,5 +101,7 @@ server-tui doctor [--report] [--json] [--include-sensitive] [--demo]
 server-tui support [--format text|markdown|json] [--output PATH] [--include-sensitive] [--demo]
 server-tui setup console --status|--print-unit [--tty tty2] [--user NAME]
 ```
+
+Wallboard does not change resource policy. For persistent display on old hosts, combine `--wallboard --performance-profile low-resource`.
 
 Install/remove of the console unit is library-backed (`ConsoleFsOps`); automated tests/smoke use dry-run only and never write `/etc`.

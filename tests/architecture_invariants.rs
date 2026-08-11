@@ -20,6 +20,7 @@ fn demo_state() -> AppState {
         true,
         false,
         std::path::PathBuf::from("/tmp"),
+        Config::default_path(),
     )
 }
 
@@ -198,6 +199,28 @@ fn providers_must_not_write_state_toml() {
     assert!(
         offenders.is_empty(),
         "providers must not write persist state (found: {offenders:?})"
+    );
+}
+
+#[test]
+fn app_layer_must_not_persist_configuration_or_state() {
+    let mut files = Vec::new();
+    walk_rs_files(std::path::Path::new("src/app"), &mut files);
+    let mut offenders = Vec::new();
+    for path in files {
+        let body = std::fs::read_to_string(&path).unwrap();
+        for (index, line) in body.lines().enumerate() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("//")
+                && (trimmed.contains(".save_atomic(") || trimmed.contains("std::fs::"))
+            {
+                offenders.push(format!("{}:{}", path.display(), index + 1));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "app reducers must emit typed persistence side effects (found: {offenders:?})"
     );
 }
 

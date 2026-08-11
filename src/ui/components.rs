@@ -292,6 +292,7 @@ mod tests {
             true,
             false,
             PathBuf::from("/tmp"),
+            Config::default_path(),
         );
         state.screen = crate::app::Screen::Processes;
         state.width = 70;
@@ -310,6 +311,7 @@ mod tests {
             true,
             false,
             PathBuf::from("/tmp"),
+            Config::default_path(),
         );
         state.screen = crate::app::Screen::Services;
         state.width = 160;

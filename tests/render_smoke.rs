@@ -17,6 +17,7 @@ fn state_80x24() -> AppState {
         false,
         true,
         PathBuf::from("/tmp"),
+        Config::default_path(),
     );
     s.width = 80;
     s.height = 24;

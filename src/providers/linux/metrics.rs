@@ -15,7 +15,6 @@ use crate::sanitize::{sanitize_cell, sanitize_path_display};
 
 pub struct LinuxMetricsProvider {
     inner: Arc<Mutex<MetricsState>>,
-    intervals: MetricsIntervals,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +40,7 @@ impl MetricsIntervals {
 }
 
 struct MetricsState {
+    intervals: MetricsIntervals,
     system: System,
     networks: Networks,
     disks: Disks,
@@ -73,8 +73,8 @@ impl LinuxMetricsProvider {
         let networks = Networks::new_with_refreshed_list();
         let disks = Disks::new_with_refreshed_list();
         Self {
-            intervals: MetricsIntervals::from_config(config),
             inner: Arc::new(Mutex::new(MetricsState {
+                intervals: MetricsIntervals::from_config(config),
                 system,
                 networks,
                 disks,
@@ -106,10 +106,15 @@ impl LinuxMetricsProvider {
 impl MetricsProvider for LinuxMetricsProvider {
     async fn collect(&self) -> Result<SystemMetrics, AppError> {
         let inner = Arc::clone(&self.inner);
-        let intervals = self.intervals.clone();
-        tokio::task::spawn_blocking(move || collect_blocking(&inner, &intervals))
+        tokio::task::spawn_blocking(move || collect_blocking(&inner))
             .await
             .map_err(|e| AppError::Internal(format!("metrics join: {e}")))?
+    }
+
+    fn update_refresh_policy(&self, config: &Config) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.intervals = MetricsIntervals::from_config(config);
+        }
     }
 }
 
@@ -120,14 +125,12 @@ fn due(last: Option<Instant>, ms: u64) -> bool {
     }
 }
 
-fn collect_blocking(
-    inner: &Mutex<MetricsState>,
-    intervals: &MetricsIntervals,
-) -> Result<SystemMetrics, AppError> {
+fn collect_blocking(inner: &Mutex<MetricsState>) -> Result<SystemMetrics, AppError> {
     let mut guard = inner
         .lock()
         .map_err(|_| AppError::Internal("metrics lock poisoned".into()))?;
     let state = &mut *guard;
+    let intervals = state.intervals.clone();
     let now = Instant::now();
 
     if due(state.last_cpu_net, intervals.cpu_net_ms) {

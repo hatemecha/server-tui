@@ -109,7 +109,7 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
             );
         }
         Dialog::DiagnosticReport { body } => {
-            draw_box(frame, area, theme, "Diagnostic report (redacted)", body);
+            draw_box(frame, area, theme, "Diagnostic report", body);
         }
         Dialog::Message { title, body } => {
             draw_box(frame, area, theme, title, body);

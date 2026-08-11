@@ -15,6 +15,7 @@ fn state() -> AppState {
         true,
         false,
         PathBuf::from("/tmp"),
+        Config::default_path(),
     )
 }
 
@@ -111,7 +112,7 @@ fn demo_journey_covers_main_screens_and_quit() {
     assert!(
         effects
             .iter()
-            .any(|e| matches!(e, SideEffect::FetchProcessDetails { pid: 42 }))
+            .any(|e| matches!(e, SideEffect::FetchProcessDetails { pid: 42, .. }))
             || matches!(s.dialog, Some(Dialog::Inspector { .. })),
         "inspect on processes should fetch details or open inspector; effects={effects:?} dialog={:?}",
         s.dialog

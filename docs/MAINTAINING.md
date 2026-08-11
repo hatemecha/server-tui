@@ -71,7 +71,17 @@ All allowlisted tools go through `src/actions/trusted.rs` (`TrustedCommand` + `E
 
 ## Persistence invariant
 
-Only the runtime/app path writes `$XDG_STATE_HOME/server-tui/state.toml`. Providers return observations (e.g. SMART CRC); runtime merges and saves.
+Only runtime side effects write configuration or `$XDG_STATE_HOME/server-tui/state.toml`. Providers return observations (e.g. SMART CRC); the reducer accepts only the current diagnostic generation, merges it, then asks runtime to save.
+
+## Async freshness and filesystem ownership
+
+- Give replaceable/context-sensitive async work a request generation at intent creation. Scope failures as well as successes. Cancellation is not freshness validation.
+- Use `ensure_private_app_dir` only for directories owned by server-tui. `write_private_atomic` creates a unique `0600` sibling, syncs contents, renames, then syncs the parent on Linux, but never chmods an existing parent.
+- A custom `--config` path and explicit support `--output` are user-managed. Preserve the exact path and its parent permissions.
+
+## Effective runtime policy
+
+Precedence is persisted base config, then CLI overrides (including `--refresh-ms`), then profile derivation. Every profile switch derives from base values, publishes one effective config to existing pollers/provider caches/tick timing, and resizes history without discarding retained newest samples. Wallboard affects presentation only; combine `--wallboard --performance-profile low-resource` on older hosts.
 
 ## Security reminders
 

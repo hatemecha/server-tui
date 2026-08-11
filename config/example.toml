@@ -1,3 +1,7 @@
+version = 1
+
+# Base intervals. The active performance profile derives one effective policy
+# from these values; --refresh-ms overrides refresh_ms before profile scaling.
 refresh_ms = 1000
 process_refresh_ms = 2000
 service_refresh_ms = 5000
@@ -17,3 +21,17 @@ confirm_service_actions = true
 
 max_log_entries = 5000
 metric_history_size = 60
+
+terminal_profile = "auto"
+performance_profile = "auto"
+onboarding_completed = false
+
+enable_smart_probes = true
+diagnostics_light_scan = true
+
+# Presentation and resource policy are independent.
+wallboard_default = false
+
+# Cleanup applies only to reports in server-tui's XDG state reports directory.
+# Set to 0 to disable automatic cleanup.
+report_retention_days = 30

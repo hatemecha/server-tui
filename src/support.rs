@@ -1,6 +1,7 @@
-//! Redacted support report generation (CLI + TUI export helper).
+//! Shareable-by-default support report generation (CLI + TUI export helper).
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -9,6 +10,8 @@ use crate::error::AppError;
 use crate::model::{Finding, HealthStatus, ProcessInfo, ServiceInfo, SystemMetrics};
 use crate::sanitize::{sanitize_path_display, sanitize_text};
 use crate::{APP_NAME, APP_VERSION, CONFIG_DIR_NAME};
+
+static REPORT_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SupportFormat {
@@ -21,12 +24,12 @@ pub enum SupportFormat {
 /// Formal redaction policy for exports / support / doctor reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RedactionPolicy {
-    /// When false (default), command lines are truncated to binary name.
+    /// Full mode disables privacy reductions; terminal sanitization still applies.
     pub include_sensitive: bool,
 }
 
 impl RedactionPolicy {
-    pub fn safe() -> Self {
+    pub fn shareable() -> Self {
         Self::default()
     }
 
@@ -39,6 +42,91 @@ impl RedactionPolicy {
     pub fn redact_cmd(self, cmd: &str) -> String {
         redact_cmd(cmd, self.include_sensitive)
     }
+}
+
+struct Redactor {
+    policy: RedactionPolicy,
+    hostname: String,
+    users: Vec<String>,
+    home: Option<String>,
+}
+
+impl Redactor {
+    fn new(policy: RedactionPolicy, metrics: &SystemMetrics, processes: &[ProcessInfo]) -> Self {
+        let mut users: Vec<_> = processes
+            .iter()
+            .map(|process| sanitize_text(&process.user))
+            .filter(|user| !user.is_empty())
+            .collect();
+        users.sort();
+        users.dedup();
+        Self {
+            policy,
+            hostname: sanitize_text(&metrics.hostname),
+            users,
+            home: dirs::home_dir().map(|path| sanitize_path_display(&path)),
+        }
+    }
+
+    fn text(&self, value: &str) -> String {
+        let mut value = sanitize_text(value);
+        if self.policy.include_sensitive {
+            return value;
+        }
+        if let Some(home) = &self.home {
+            if !home.is_empty() {
+                value = value.replace(home, "$HOME");
+            }
+        }
+        if !self.hostname.is_empty() {
+            value = value.replace(&self.hostname, "<host>");
+        }
+        for user in &self.users {
+            value = value.replace(user, "<user>");
+        }
+        mask_ip_addresses(&value)
+    }
+
+    fn hostname(&self) -> String {
+        if self.policy.include_sensitive {
+            self.text(&self.hostname)
+        } else {
+            "<host>".into()
+        }
+    }
+
+    fn user(&self, user: &str) -> String {
+        if self.policy.include_sensitive {
+            self.text(user)
+        } else {
+            "<user>".into()
+        }
+    }
+}
+
+fn mask_ip_addresses(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut token = String::new();
+    let flush = |token: &mut String, out: &mut String| {
+        if !token.is_empty() {
+            if token.parse::<std::net::IpAddr>().is_ok() {
+                out.push_str("<ip>");
+            } else {
+                out.push_str(token);
+            }
+            token.clear();
+        }
+    };
+    for ch in value.chars() {
+        if ch.is_ascii_hexdigit() || matches!(ch, '.' | ':' | '%') {
+            token.push(ch);
+        } else {
+            flush(&mut token, &mut out);
+            out.push(ch);
+        }
+    }
+    flush(&mut token, &mut out);
+    out
 }
 
 impl SupportFormat {
@@ -113,6 +201,12 @@ pub fn build_report(
     read_only: bool,
     include_sensitive: bool,
 ) -> SupportReport {
+    let policy = if include_sensitive {
+        RedactionPolicy::include_sensitive()
+    } else {
+        RedactionPolicy::shareable()
+    };
+    let redactor = Redactor::new(policy, metrics, processes);
     let mut top: Vec<_> = processes.iter().collect();
     top.sort_by(|a, b| {
         b.cpu
@@ -124,7 +218,7 @@ pub fn build_report(
     let failed: Vec<String> = services
         .iter()
         .filter(|s| s.active_state.eq_ignore_ascii_case("failed"))
-        .map(|s| s.unit.clone())
+        .map(|s| redactor.text(&s.unit))
         .collect();
 
     SupportReport {
@@ -135,37 +229,34 @@ pub fn build_report(
             .map(|d| d.as_secs())
             .unwrap_or(0),
         health: health.label().into(),
-        hostname: sanitize_text(&metrics.hostname),
+        hostname: redactor.hostname(),
         demo,
         read_only,
         findings: findings
             .iter()
             .take(50)
             .map(|f| SupportFinding {
-                id: f.id.clone(),
+                id: redactor.text(&f.id),
                 severity: f.severity.label().into(),
-                title: sanitize_text(&f.title),
-                summary: sanitize_text(&f.summary),
+                title: redactor.text(&f.title),
+                summary: redactor.text(&f.summary),
             })
             .collect(),
         top_processes: top
             .into_iter()
             .map(|p| SupportProcess {
                 pid: p.pid,
-                name: p.name.clone(),
-                user: p.user.clone(),
+                name: redactor.text(&p.name),
+                user: redactor.user(&p.user),
                 cpu: p.cpu,
                 mem: crate::model::format_mem_pct(p.mem_pct),
-                cmd_redacted: redact_cmd(&p.cmd, include_sensitive),
+                cmd_redacted: redactor.text(&policy.redact_cmd(&p.cmd)),
             })
             .collect(),
         failed_services: failed,
         notes: vec![
-            "Redacted by default (cmd = argv0). Use --include-sensitive to expand.".into(),
-            format!(
-                "scan path display policy uses sanitize: {}",
-                sanitize_path_display(Path::new("/tmp/example"))
-            ),
+            "Shareable mode masks recognized host, user, IP and home-path values; command arguments are omitted.".into(),
+            "PIDs, findings, and non-identity portions of process/systemd unit names remain for troubleshooting; unit names may identify a workload.".into(),
         ],
     }
 }
@@ -191,6 +282,7 @@ fn render_text(r: &SupportReport) -> String {
     } else {
         for f in &r.findings {
             out.push_str(&format!("- [{}] {}: {}\n", f.severity, f.id, f.title));
+            out.push_str(&format!("  {}\n", f.summary));
         }
     }
     out.push_str("\nTop processes:\n");
@@ -215,16 +307,44 @@ fn render_text(r: &SupportReport) -> String {
     out
 }
 
+fn markdown_text(value: &str) -> String {
+    let value = sanitize_text(value);
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '+' | '-' | '.'
+            | '!' | '|' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn render_markdown(r: &SupportReport) -> String {
     let mut out = format!(
-        "# {APP_NAME} support report\n\n- version: `{}`\n- health: **{}**\n- host: `{}`\n- demo: `{}`\n- read_only: `{}`\n\n## Findings\n\n",
-        r.version, r.health, r.hostname, r.demo, r.read_only
+        "# {APP_NAME} support report\n\n- version: {}\n- health: **{}**\n- host: {}\n- demo: {}\n- read_only: {}\n\n## Findings\n\n",
+        markdown_text(&r.version),
+        markdown_text(&r.health),
+        markdown_text(&r.hostname),
+        r.demo,
+        r.read_only
     );
     if r.findings.is_empty() {
         out.push_str("_none_\n");
     } else {
         for f in &r.findings {
-            out.push_str(&format!("- **{}** `{}`: {}\n", f.severity, f.id, f.title));
+            out.push_str(&format!(
+                "- **{}** {}: {}\n  {}\n",
+                markdown_text(&f.severity),
+                markdown_text(&f.id),
+                markdown_text(&f.title),
+                markdown_text(&f.summary)
+            ));
         }
     }
     out.push_str("\n## Top processes\n\n");
@@ -233,8 +353,12 @@ fn render_markdown(r: &SupportReport) -> String {
     } else {
         for p in &r.top_processes {
             out.push_str(&format!(
-                "- `{}` pid={} cpu={:.1}% mem={} — `{}`\n",
-                p.name, p.pid, p.cpu, p.mem, p.cmd_redacted
+                "- {} pid={} cpu={:.1}% mem={} — {}\n",
+                markdown_text(&p.name),
+                p.pid,
+                p.cpu,
+                markdown_text(&p.mem),
+                markdown_text(&p.cmd_redacted)
             ));
         }
     }
@@ -243,7 +367,7 @@ fn render_markdown(r: &SupportReport) -> String {
         out.push_str("_none_\n");
     } else {
         for u in &r.failed_services {
-            out.push_str(&format!("- `{u}`\n"));
+            out.push_str(&format!("- {}\n", markdown_text(u)));
         }
     }
     out
@@ -266,15 +390,27 @@ pub fn save_report(
         p.to_path_buf()
     } else {
         let dir = default_reports_dir();
-        crate::fsutil::ensure_private_dir(&dir)?;
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        dir.join(format!("support-{ts}.{}", format.extension()))
+        if let Some(app_dir) = dir.parent() {
+            crate::fsutil::ensure_private_app_dir(app_dir)?;
+        }
+        save_report_path(&dir, format)?
     };
     crate::fsutil::write_private_atomic(&path, body.as_bytes())?;
     Ok(path)
+}
+
+fn save_report_path(dir: &Path, format: SupportFormat) -> Result<PathBuf, AppError> {
+    crate::fsutil::ensure_private_app_dir(dir)?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let nonce = REPORT_NONCE.fetch_add(1, Ordering::Relaxed);
+    Ok(dir.join(format!(
+        "support-{}-{:09}-{nonce}.{}",
+        now.as_secs(),
+        now.subsec_nanos(),
+        format.extension()
+    )))
 }
 
 #[cfg(test)]
@@ -304,6 +440,42 @@ mod tests {
     }
 
     #[test]
+    fn shareable_report_omits_structured_identity_and_command_arguments() {
+        let metrics = SystemMetrics {
+            hostname: "prod-server-01".into(),
+            ..SystemMetrics::default()
+        };
+        let process = ProcessInfo {
+            pid: 7,
+            user: "alice".into(),
+            name: "foo".into(),
+            cmd: "/usr/bin/foo --token=secret --bind=10.1.2.3".into(),
+            cpu: 1.0,
+            mem_pct: Some(2.0),
+            mem_bytes: 1,
+            state: "S".into(),
+            run_time_secs: 1,
+            start_time: 1,
+        };
+        let report = build_report(
+            &metrics,
+            &[],
+            &[process],
+            &[],
+            HealthStatus::Ok,
+            false,
+            true,
+            false,
+        );
+        let json = render(&report, SupportFormat::Json).expect("json");
+        for secret in ["prod-server-01", "alice", "--token=secret", "10.1.2.3"] {
+            assert!(!json.contains(secret), "leaked {secret}: {json}");
+        }
+        assert!(json.contains("/usr/bin/foo"));
+        assert!(json.contains("\"pid\": 7"));
+    }
+
+    #[test]
     fn markdown_includes_flags_and_empty_placeholders() {
         let r = build_report(
             &SystemMetrics::default(),
@@ -316,9 +488,96 @@ mod tests {
             false,
         );
         let md = render(&r, SupportFormat::Markdown).expect("md");
-        assert!(md.contains("demo: `true`"));
-        assert!(md.contains("read_only: `true`"));
+        assert!(md.contains("demo: true"));
+        assert!(md.contains("read_only: true"));
         assert!(md.contains("_none_"));
         assert!(md.contains("## Failed services"));
+    }
+
+    #[test]
+    fn consecutive_default_report_paths_are_unique() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let first = save_report_path(dir.path(), SupportFormat::Text).expect("first path");
+        crate::fsutil::write_private_atomic(&first, b"first").expect("first write");
+        let second = save_report_path(dir.path(), SupportFormat::Text).expect("second path");
+        crate::fsutil::write_private_atomic(&second, b"second").expect("second write");
+
+        assert_ne!(first, second);
+        assert!(first.is_file() && second.is_file());
+    }
+
+    #[test]
+    fn shareable_redactor_masks_known_identity_paths_and_ips() {
+        let redactor = Redactor {
+            policy: RedactionPolicy::shareable(),
+            hostname: "prod-server-01".into(),
+            users: vec!["alice".into()],
+            home: Some("/home/alice".into()),
+        };
+        let input = "prod-server-01 alice /home/alice/file 10.1.2.3 2001:db8::1";
+        let output = redactor.text(input);
+        for secret in [
+            "prod-server-01",
+            "alice",
+            "/home/alice",
+            "10.1.2.3",
+            "2001:db8::1",
+        ] {
+            assert!(!output.contains(secret), "leaked {secret}: {output}");
+        }
+        assert!(output.contains("<host>"));
+        assert!(output.contains("$HOME"));
+        assert!(output.matches("<ip>").count() >= 2);
+
+        let full = Redactor {
+            policy: RedactionPolicy::include_sensitive(),
+            hostname: "prod-server-01".into(),
+            users: vec!["alice".into()],
+            home: Some("/home/alice".into()),
+        };
+        assert_eq!(full.text(input), input);
+        assert_eq!(
+            full.policy.redact_cmd("/usr/bin/foo --token=secret"),
+            "/usr/bin/foo --token=secret"
+        );
+    }
+
+    #[test]
+    fn markdown_escapes_host_derived_structure_and_json_stays_valid() {
+        let report = SupportReport {
+            app: APP_NAME.into(),
+            version: APP_VERSION.into(),
+            generated_at_unix: 0,
+            health: "ok".into(),
+            hostname: "**prod**".into(),
+            demo: false,
+            read_only: true,
+            findings: vec![SupportFinding {
+                id: "finding".into(),
+                severity: "warning".into(),
+                title: "# injected heading".into(),
+                summary: "<script>\n[next](https://example.invalid)".into(),
+            }],
+            top_processes: vec![SupportProcess {
+                pid: 7,
+                name: "`oops`".into(),
+                user: "<user>".into(),
+                cpu: 1.0,
+                mem: "2.0".into(),
+                cmd_redacted: "/usr/bin/foo".into(),
+            }],
+            failed_services: vec!["[click](https://example.invalid)".into()],
+            notes: Vec::new(),
+        };
+        let markdown = render(&report, SupportFormat::Markdown).expect("markdown");
+        assert!(!markdown
+            .lines()
+            .any(|line| line.starts_with("# injected heading")));
+        assert!(!markdown.contains("<script>"));
+        assert!(!markdown.contains("[click](https://example.invalid)"));
+        assert!(markdown.contains("\\# injected heading"));
+        let json = render(&report, SupportFormat::Json).expect("json");
+        let _: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert!(json.contains("# injected heading"));
     }
 }

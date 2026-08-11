@@ -84,6 +84,14 @@ impl<T> CircularBuffer<T> {
     pub fn as_slice_vec(&self) -> Vec<&T> {
         self.data.iter().collect()
     }
+
+    pub fn resize(&mut self, capacity: usize) {
+        let capacity = capacity.max(1);
+        while self.data.len() > capacity {
+            self.data.pop_front();
+        }
+        self.capacity = capacity;
+    }
 }
 
 impl CircularBuffer<f32> {
@@ -126,6 +134,13 @@ impl MetricHistory {
         self.memory.push(mem_pct);
         self.net_rx.push(metrics.net_rx_bps);
         self.net_tx.push(metrics.net_tx_bps);
+    }
+
+    pub fn resize(&mut self, capacity: usize) {
+        self.cpu.resize(capacity);
+        self.memory.resize(capacity);
+        self.net_rx.resize(capacity);
+        self.net_tx.resize(capacity);
     }
 }
 
@@ -175,6 +190,20 @@ mod tests {
         assert_eq!(buf.len(), 3);
         let v: Vec<_> = buf.iter().copied().collect();
         assert_eq!(v, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn history_resize_preserves_newest_and_accepts_growth() {
+        let mut history = MetricHistory::new(4);
+        for value in 1..=4 {
+            history.cpu.push(value as f32);
+        }
+        history.resize(2);
+        assert_eq!(history.cpu.values(), vec![3.0, 4.0]);
+        history.resize(5);
+        history.cpu.push(5.0);
+        assert_eq!(history.cpu.values(), vec![3.0, 4.0, 5.0]);
+        assert_eq!(history.cpu.capacity(), 5);
     }
 
     #[test]

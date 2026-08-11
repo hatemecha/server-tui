@@ -66,9 +66,6 @@ pub async fn run_loop(
     let mut follow_cancel: Option<CancellationToken> = None;
     let mut scan_cancel: Option<CancellationToken> = None;
 
-    let mut redraw = tokio::time::interval(Duration::from_millis(config.refresh_ms.max(200)));
-    redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|e| AppError::Terminal(format!("SIGTERM handler: {e}")))?;
     let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
@@ -85,9 +82,6 @@ pub async fn run_loop(
         }
 
         tokio::select! {
-            _ = redraw.tick() => {
-                let _ = tx.send(AppEvent::Tick).await;
-            }
             _ = sigterm.recv() => {
                 tracing::info!("received SIGTERM");
                 state.should_quit = true;
@@ -172,6 +166,25 @@ fn spawn_pollers(
     config_rx: tokio::sync::watch::Receiver<Config>,
     tracker: &TaskTracker,
 ) {
+    {
+        let tx = tx.clone();
+        let cancel = cancel.clone();
+        let mut config_rx = config_rx.clone();
+        tracker.spawn(async move {
+            loop {
+                let ms = config_rx.borrow().refresh_ms.max(200);
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    changed = config_rx.changed() => {
+                        if changed.is_err() { break; }
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(ms)) => {
+                        let _ = tx.send(AppEvent::Tick).await;
+                    }
+                }
+            }
+        });
+    }
     {
         let providers = Arc::clone(&providers);
         let tx = tx.clone();

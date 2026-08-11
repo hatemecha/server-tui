@@ -18,7 +18,7 @@ This is early software. Security fixes are applied on a best-effort basis by the
 2. **Accidental privilege impact** (wrong signal / wrong unit) when run as root or with admin rights.
 3. **Command injection** if external tools were invoked via shell (forbidden by design).
 4. **Data exfiltration** if telemetry or network listeners existed (they do not).
-5. **Sensitive evidence** in diagnostic reports (`--include-sensitive` is opt-in).
+5. **Host identity in reports** (`--include-sensitive` is explicit opt-in to full values).
 
 ## Safe practice
 
@@ -26,13 +26,16 @@ This is early software. Security fixes are applied on a best-effort basis by the
 - Prefer an unprivileged account for observation.
 - Confirm dialogs carefully (default focus is **Cancel**).
 - Do not install this interactive TUI as a long-running systemd service.
-- Treat doctor JSON/text as sensitive if `--include-sensitive` is used.
+- Shareable support reports mask recognized hostname, username, IP and home-path values and omit command arguments. PIDs, findings, and non-identity portions of process/unit names remain diagnostically useful; unit names may identify workloads.
+- Treat all reports as host information, and especially reports produced with `--include-sensitive`, according to your sharing policy.
 
 ## Untrusted data
 
 Treat as untrusted: journal messages, process command lines, unit descriptions, file names, D-Bus error strings, probe output.
 
 Pipeline: strip ANSI → replace control characters → `sanitize_path_display` for paths → truncate for display where needed.
+
+Support export adds centralized shareable/full redaction before rendering. Markdown additionally escapes structure and HTML; JSON uses serializer escaping rather than Markdown escaping. This is privacy reduction, not a general secret scanner.
 
 ## Command execution
 

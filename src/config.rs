@@ -98,6 +98,24 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Derive the complete runtime polling policy from persisted/CLI base values.
+    /// Calling this repeatedly never compounds profile scaling.
+    pub fn effective(&self, profile: crate::profile::PerformanceProfile) -> Self {
+        let mut effective = self.clone();
+        let scale = profile.refresh_scale();
+        let scaled = |value: u64| ((value as f64) * scale).round() as u64;
+        effective.refresh_ms = scaled(self.refresh_ms);
+        effective.process_refresh_ms = scaled(self.process_refresh_ms);
+        effective.service_refresh_ms = scaled(self.service_refresh_ms);
+        effective.disk_refresh_ms = scaled(self.disk_refresh_ms);
+        effective.temperature_refresh_ms = scaled(self.temperature_refresh_ms);
+        effective.memory_refresh_ms = scaled(self.memory_refresh_ms);
+        effective.metric_history_size = profile.history_size(self.metric_history_size);
+        effective.performance_profile = profile;
+        effective.clamp();
+        effective
+    }
+
     pub fn default_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -157,7 +175,7 @@ impl Config {
         expand_tilde(&self.default_scan_path)
     }
 
-    /// Atomic write: private tmp + fsync + rename (0600 file / 0700 dir).
+    /// Atomic write with a 0600 file; user-managed parent permissions are preserved.
     pub fn save_atomic(&self, path: &Path) -> Result<(), AppError> {
         let body = toml::to_string_pretty(self)
             .map_err(|e| AppError::Internal(format!("config serialize: {e}")))?;
@@ -220,5 +238,61 @@ mod tests {
             AppError::Configuration { path: p, .. } => assert_eq!(p, path),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn effective_profiles_are_deterministic_and_ordered() {
+        let base = Config::default();
+        let balanced = base.effective(crate::profile::PerformanceProfile::Balanced);
+        let low = base.effective(crate::profile::PerformanceProfile::LowResource);
+        let responsive = base.effective(crate::profile::PerformanceProfile::Responsive);
+        for (low, balanced, responsive) in [
+            (low.refresh_ms, balanced.refresh_ms, responsive.refresh_ms),
+            (
+                low.process_refresh_ms,
+                balanced.process_refresh_ms,
+                responsive.process_refresh_ms,
+            ),
+            (
+                low.service_refresh_ms,
+                balanced.service_refresh_ms,
+                responsive.service_refresh_ms,
+            ),
+            (
+                low.memory_refresh_ms,
+                balanced.memory_refresh_ms,
+                responsive.memory_refresh_ms,
+            ),
+            (
+                low.disk_refresh_ms,
+                balanced.disk_refresh_ms,
+                responsive.disk_refresh_ms,
+            ),
+            (
+                low.temperature_refresh_ms,
+                balanced.temperature_refresh_ms,
+                responsive.temperature_refresh_ms,
+            ),
+        ] {
+            assert!(low >= balanced);
+            assert!(responsive <= balanced);
+        }
+        assert_eq!(
+            base.effective(crate::profile::PerformanceProfile::Balanced)
+                .refresh_ms,
+            balanced.refresh_ms
+        );
+        assert_eq!(
+            base.effective(crate::profile::PerformanceProfile::Balanced)
+                .metric_history_size,
+            balanced.metric_history_size
+        );
+    }
+
+    #[test]
+    fn example_config_matches_schema() {
+        let parsed: Config = toml::from_str(include_str!("../config/example.toml"))
+            .expect("example config must parse");
+        assert_eq!(parsed.version, 1);
     }
 }

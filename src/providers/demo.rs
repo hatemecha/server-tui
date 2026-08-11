@@ -343,7 +343,7 @@ impl StorageProvider for DemoStorage {
             name: root
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| root.display().to_string()),
+                .unwrap_or_else(|| crate::sanitize::sanitize_path_display(&root)),
             path: root.clone(),
             is_dir: true,
             size: 0,

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::app::event::{AppEvent, OperationResult};
+use crate::app::event::{AppEvent, DiagnosticOutcome, OperationResult};
 use crate::app::state::AppState;
 use crate::app::update::SideEffect;
 use crate::config::{expand_tilde, Config};
@@ -74,39 +74,49 @@ pub(crate) async fn handle_effects(
                     }
                 });
             }
-            SideEffect::RefreshLogs { unit } => {
+            SideEffect::RefreshLogs {
+                request_id,
+                unit,
+                preset,
+            } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                let preset = state.log.preset;
                 tracker.spawn(async move {
-                    match p.logs.recent_preset(unit.as_deref(), 200, preset).await {
-                        Ok(entries) => {
-                            let _ = tx.send(AppEvent::LogsReplaced(entries)).await;
-                        }
-                        Err(e) => {
-                            let _ = tx.send(AppEvent::Error(e)).await;
-                        }
-                    }
+                    let result = p.logs.recent_preset(unit.as_deref(), 200, preset).await;
+                    let _ = tx
+                        .send(AppEvent::LogsRefreshFinished {
+                            request_id,
+                            unit,
+                            preset,
+                            result,
+                        })
+                        .await;
                 });
             }
-            SideEffect::RefreshDiagnostics => {
+            SideEffect::RefreshDiagnostics {
+                request_id,
+                deep,
+                enable_smart,
+                previous_crc,
+            } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
-                let deep = state.diagnostic.deep || !state.config.diagnostics_light_scan;
-                let enable_smart = state.config.enable_smart_probes;
-                let prev_crc = state.persist.smart_crc_counts.clone();
                 tracker.spawn(async move {
-                    match p.diagnostics.probe(deep, enable_smart).await {
-                        Ok(mut snap) => {
-                            // Runtime owns persist: inject previous CRC for pure evaluate.
+                    let result = p
+                        .diagnostics
+                        .probe(deep, enable_smart)
+                        .await
+                        .map(|mut snap| {
                             for disk in &mut snap.smart_disks {
-                                disk.prev_uda_crc_error_count = prev_crc.get(&disk.device).copied();
+                                disk.prev_uda_crc_error_count =
+                                    previous_crc.get(&disk.device).copied();
                             }
-                            let observations: Vec<_> = snap
+                            let smart_crc_observations = snap
                                 .smart_disks
                                 .iter()
-                                .filter_map(|d| {
-                                    d.uda_crc_error_count.map(|c| (d.device.clone(), c))
+                                .filter_map(|disk| {
+                                    disk.uda_crc_error_count
+                                        .map(|count| (disk.device.clone(), count))
                                 })
                                 .collect();
                             let findings = evaluate(&snap);
@@ -117,39 +127,34 @@ pub(crate) async fn handle_effects(
                             );
                             let report =
                                 format_text_report(health, &findings, false, &snap.probes_degraded);
-                            if !observations.is_empty() {
-                                let _ = tx.send(AppEvent::SmartCrcObservations(observations)).await;
+                            DiagnosticOutcome {
+                                findings,
+                                health,
+                                report,
+                                probes_degraded: snap.probes_degraded,
+                                smart_crc_observations,
                             }
-                            let _ = tx
-                                .send(AppEvent::DiagnosticsUpdated {
-                                    findings,
-                                    health,
-                                    report,
-                                    probes_degraded: snap.probes_degraded,
-                                })
-                                .await;
-                        }
-                        Err(e) => {
-                            let _ = tx.send(AppEvent::Error(e)).await;
-                        }
-                    }
+                        });
+                    let _ = tx
+                        .send(AppEvent::DiagnosticsFinished { request_id, result })
+                        .await;
                 });
             }
-            SideEffect::FetchServiceDetails { unit } => {
+            SideEffect::FetchServiceDetails { request_id, unit } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
                 tracker.spawn(async move {
-                    match p.services.details(&unit).await {
-                        Ok(info) => {
-                            let _ = tx.send(AppEvent::ServiceDetails(info)).await;
-                        }
-                        Err(e) => {
-                            tracing::debug!("service details: {e}");
-                        }
-                    }
+                    let result = p.services.details(&unit).await;
+                    let _ = tx
+                        .send(AppEvent::ServiceDetailsFinished {
+                            request_id,
+                            unit,
+                            result,
+                        })
+                        .await;
                 });
             }
-            SideEffect::StartFollow { unit } => {
+            SideEffect::StartFollow { session_id, unit } => {
                 if let Some(c) = follow_cancel.take() {
                     c.cancel();
                 }
@@ -162,7 +167,12 @@ pub(crate) async fn handle_effects(
                         while !token.is_cancelled() {
                             tokio::time::sleep(Duration::from_millis(500)).await;
                             if let Ok(entries) = p.logs.recent(unit.as_deref(), 1).await {
-                                let _ = tx.send(AppEvent::LogsAppended(entries)).await;
+                                let _ = tx
+                                    .send(AppEvent::LogsAppended {
+                                        session_id,
+                                        entries,
+                                    })
+                                    .await;
                             }
                         }
                     });
@@ -186,7 +196,10 @@ pub(crate) async fn handle_effects(
                                 msg = log_rx.recv() => {
                                     match msg {
                                         Some(entries) => {
-                                            let _ = tx2.send(AppEvent::LogsAppended(entries)).await;
+                                            let _ = tx2.send(AppEvent::LogsAppended {
+                                                session_id,
+                                                entries,
+                                            }).await;
                                         }
                                         None => break,
                                     }
@@ -201,7 +214,12 @@ pub(crate) async fn handle_effects(
                     c.cancel();
                 }
             }
-            SideEffect::StartScan { path } => {
+            SideEffect::StartScan {
+                request_id,
+                path,
+                stay_on_fs,
+                follow_symlinks,
+            } => {
                 if let Some(c) = scan_cancel.take() {
                     c.cancel();
                 }
@@ -209,12 +227,15 @@ pub(crate) async fn handle_effects(
                 *scan_cancel = Some(token.clone());
                 let p = Arc::clone(providers);
                 let tx_prog = tx.clone();
-                let stay = state.storage.stay_on_fs;
-                let follow = state.config.follow_symlinks;
                 let (prog_tx, mut prog_rx) = mpsc::channel(32);
                 tracker.spawn(async move {
                     while let Some(prog) = prog_rx.recv().await {
-                        let _ = tx_prog.send(AppEvent::StorageProgress(prog)).await;
+                        let _ = tx_prog
+                            .send(AppEvent::StorageProgress {
+                                request_id,
+                                progress: prog,
+                            })
+                            .await;
                     }
                 });
                 let tx2 = tx.clone();
@@ -224,8 +245,13 @@ pub(crate) async fn handle_effects(
                     path
                 };
                 tracker.spawn(async move {
-                    let result = p.storage.scan(path, stay, follow, token, prog_tx).await;
-                    let _ = tx2.send(AppEvent::StorageFinished(result)).await;
+                    let result = p
+                        .storage
+                        .scan(path, stay_on_fs, follow_symlinks, token, prog_tx)
+                        .await;
+                    let _ = tx2
+                        .send(AppEvent::StorageFinished { request_id, result })
+                        .await;
                 });
             }
             SideEffect::CancelScan => {
@@ -290,23 +316,25 @@ pub(crate) async fn handle_effects(
                     state.set_success(format!("sudo {} {} ok", action.label(), unit));
                 }
             }
-            SideEffect::FetchProcessDetails { pid } => {
+            SideEffect::FetchProcessDetails { request_id, pid } => {
                 let p = Arc::clone(providers);
                 let tx = tx.clone();
                 tracker.spawn(async move {
-                    match p.processes.details(pid).await {
-                        Ok(d) => {
-                            let _ = tx.send(AppEvent::ProcessDetails(d)).await;
-                        }
-                        Err(e) => {
-                            let _ = tx.send(AppEvent::Error(e)).await;
-                        }
-                    }
+                    let result = p.processes.details(pid).await;
+                    let _ = tx
+                        .send(AppEvent::ProcessDetailsFinished {
+                            request_id,
+                            pid,
+                            result,
+                        })
+                        .await;
                 });
             }
-            SideEffect::FetchPpidMap => {
-                let pids: Vec<u32> = state.process.items.iter().map(|p| p.pid).collect();
-                let demo = state.demo;
+            SideEffect::FetchPpidMap {
+                request_id,
+                pids,
+                demo,
+            } => {
                 let tx = tx.clone();
                 tracker.spawn(async move {
                     let map = if demo {
@@ -321,37 +349,32 @@ pub(crate) async fn handle_effects(
                     } else {
                         crate::providers::linux::processes::ppid_map(pids).await
                     };
-                    match map {
-                        Ok(map) => {
-                            let _ = tx.send(AppEvent::PpidMap(map)).await;
-                        }
-                        Err(e) => {
-                            let _ = tx.send(AppEvent::Error(e)).await;
-                        }
-                    }
+                    let _ = tx
+                        .send(AppEvent::PpidMapFinished {
+                            request_id,
+                            result: map,
+                        })
+                        .await;
                 });
             }
-            SideEffect::PreviewFile { path } => {
+            SideEffect::PreviewFile { request_id, path } => {
                 let tx = tx.clone();
+                let event_path = path.clone();
                 tracker.spawn(async move {
                     let result =
                         tokio::task::spawn_blocking(move || crate::preview::preview_file(&path))
                             .await;
-                    match result {
-                        Ok(Ok(prev)) => {
-                            let _ = tx.send(AppEvent::FilePreviewReady(prev)).await;
-                        }
-                        Ok(Err(e)) => {
-                            let _ = tx.send(AppEvent::Error(e)).await;
-                        }
-                        Err(e) => {
-                            let _ = tx
-                                .send(AppEvent::Error(crate::error::AppError::Internal(
-                                    e.to_string(),
-                                )))
-                                .await;
-                        }
-                    }
+                    let result = match result {
+                        Ok(result) => result,
+                        Err(error) => Err(crate::error::AppError::Internal(error.to_string())),
+                    };
+                    let _ = tx
+                        .send(AppEvent::FilePreviewFinished {
+                            request_id,
+                            path: event_path,
+                            result,
+                        })
+                        .await;
                 });
             }
             SideEffect::CleanupReports => {
@@ -387,8 +410,57 @@ pub(crate) async fn handle_effects(
                     }
                 });
             }
-            SideEffect::PublishConfig => {
-                let _ = config_tx.send(state.config.clone());
+            SideEffect::SaveConfig {
+                path,
+                config,
+                reason,
+                harden_parent,
+            } => {
+                let tx = tx.clone();
+                let event_path = path.clone();
+                tracker.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        if harden_parent {
+                            if let Some(parent) = path.parent() {
+                                crate::fsutil::ensure_private_app_dir(parent)?;
+                            }
+                        }
+                        config.save_atomic(&path)
+                    })
+                    .await
+                    .unwrap_or_else(|error| {
+                        Err(AppError::Internal(format!("config save join: {error}")))
+                    });
+                    let _ = tx
+                        .send(AppEvent::ConfigSaveFinished {
+                            path: event_path,
+                            reason,
+                            result,
+                        })
+                        .await;
+                });
+            }
+            SideEffect::SavePersist { path, persist } => {
+                let tx = tx.clone();
+                tracker.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        if let Some(parent) = path.parent() {
+                            crate::fsutil::ensure_private_app_dir(parent)?;
+                        }
+                        persist.save_atomic(&path)
+                    })
+                    .await
+                    .unwrap_or_else(|error| {
+                        Err(AppError::Internal(format!("state save join: {error}")))
+                    });
+                    if let Err(error) = result {
+                        let _ = tx.send(AppEvent::Error(error)).await;
+                    }
+                });
+            }
+            SideEffect::PublishRuntimeConfig(config) => {
+                providers.metrics.update_refresh_policy(&config);
+                let _ = config_tx.send(config);
             }
         }
     }

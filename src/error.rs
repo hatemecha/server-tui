@@ -55,7 +55,10 @@ impl AppError {
         match self {
             Self::Terminal(m) => format!("Terminal problem: {m}"),
             Self::Configuration { path, message } => {
-                format!("Invalid configuration ({}): {message}", path.display())
+                format!(
+                    "Invalid configuration ({}): {message}",
+                    crate::sanitize::sanitize_path_display(path)
+                )
             }
             Self::Metrics(m) => format!("Could not collect metrics: {m}"),
             Self::Process(m) => format!("Process operation: {m}"),

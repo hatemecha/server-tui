@@ -32,6 +32,9 @@ Rules:
 7. Runtime lives in `src/runtime/` (`app_loop`, `effects`, `privilege`); `main` stays CLI → bootstrap → run → exit.
 8. Screen state lives in `src/app/substates.rs`; update path in `src/app/update/` (keymap locals before globals). `Screen` enum lives in `src/model/screen.rs` (re-exported from `app::action`).
 9. Probe I/O under `providers/linux/diagnostics/`; pure rules under `diagnostics/rules/`.
+10. Replaceable async work carries a `RequestId`; cancellation saves work, while generation checks prevent late results from mutating newer state.
+11. App reducers never write configuration files; they emit typed runtime side effects.
+12. Derive performance policy from base config and publish it to real runtime consumers; never compound an already-derived profile.
 
 ## MVP boundaries — do not implement yet
 
@@ -47,6 +50,8 @@ Record ideas in `ROADMAP.md` only.
 - Sanitize host-derived strings before paint; never signal PID 0/1/self.
 - Service actions: `unit_looks_safe` **and** known-unit registry; read-only hard-blocks admin paths.
 - Prefer Unknown health over false diagnosis.
+- Never chmod arbitrary/user-selected parent directories; harden only explicitly app-owned directories.
+- Shareable support reports use the centralized redaction policy and format-specific escaping.
 - Tests must not kill real processes, restart real services, sudo, write `/etc`, scan `/`, or require root.
 
 ## Validation (required)

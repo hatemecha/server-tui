@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::app::action::{ConfirmChoice, FocusPane, Screen};
+use crate::app::event::RequestId;
 use crate::app::substates::{
     DiagnosticState, LogState, ProcessState, ServiceState, SettingsState, StorageState,
 };
@@ -140,6 +141,11 @@ pub struct AppState {
     pub activity: std::collections::VecDeque<String>,
     pub viewport_rows: usize,
     pub config_path: PathBuf,
+    /// True only when bootstrap selected server-tui's own default config directory.
+    pub config_dir_owned: bool,
+    /// Derived polling/cache policy. Never persisted directly.
+    pub runtime_config: Config,
+    request_counter: u64,
 }
 
 impl AppState {
@@ -150,10 +156,14 @@ impl AppState {
         color: bool,
         ascii: bool,
         scan_path: PathBuf,
+        config_path: PathBuf,
     ) -> Self {
-        let history = MetricHistory::new(config.metric_history_size);
+        let runtime_config = config.effective(config.performance_profile);
+        let history = MetricHistory::new(runtime_config.metric_history_size);
         let max_logs = config.max_log_entries;
         let stay_on_fs = config.stay_on_filesystem;
+        let terminal_profile = config.terminal_profile;
+        let performance_profile = config.performance_profile;
         let (persist, persist_path) = AppPersistState::load_or_default(None)
             .unwrap_or_else(|_| (AppPersistState::default(), AppPersistState::default_path()));
         Self {
@@ -186,12 +196,15 @@ impl AppState {
             screen_before_overlay: None,
             glossary_vp: ViewportState::new(),
             toast: None,
-            terminal_profile: TerminalProfile::Auto,
-            performance_profile: PerformanceProfile::Auto,
+            terminal_profile,
+            performance_profile,
             wallboard: false,
             activity: std::collections::VecDeque::with_capacity(100),
             viewport_rows: 20,
-            config_path: Config::default_path(),
+            config_path,
+            config_dir_owned: false,
+            runtime_config,
+            request_counter: 0,
         }
     }
 
@@ -379,10 +392,9 @@ impl AppState {
         };
     }
 
-    pub fn save_persist(&self) {
-        if let Err(e) = self.persist.save_atomic(&self.persist_path) {
-            tracing::warn!("persist save failed: {e}");
-        }
+    pub(crate) fn next_request_id(&mut self) -> RequestId {
+        self.request_counter = self.request_counter.wrapping_add(1);
+        RequestId::new(self.request_counter)
     }
 }
 
@@ -402,6 +414,7 @@ mod status_line_tests {
             true,
             false,
             PathBuf::from("/tmp"),
+            Config::default_path(),
         );
         assert_eq!(state.status_line(), "ready");
         state.set_status("hello");

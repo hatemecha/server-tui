@@ -1,13 +1,11 @@
 //! Apply AppEvent → state + SideEffects.
 
-use crossterm::event::KeyCode;
-
 use crate::app::action::ConfirmChoice;
 use crate::app::event::{AppEvent, OperationResult};
 use crate::app::state::{AppState, Dialog, ScanState};
 use crate::app::update::keymap::map_key;
 use crate::app::update::reducer::apply_action;
-use crate::app::update::side_effect::SideEffect;
+use crate::app::update::side_effect::{begin_ppid_map, begin_service_details, SideEffect};
 use crate::model::{
     count_failed, filter_services, preserve_selection, preserve_service_selection, ServiceFilter,
     SubsystemHealth,
@@ -89,15 +87,6 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
     match event {
         AppEvent::Tick => Vec::new(),
         AppEvent::Input(key) => {
-            // Special-case: 'y' on confirm should confirm even if focus is Cancel.
-            if let Some(
-                Dialog::ConfirmSignal { choice, .. } | Dialog::ConfirmService { choice, .. },
-            ) = state.dialog.as_mut()
-            {
-                if key.code == KeyCode::Char('y') {
-                    *choice = ConfirmChoice::Yes;
-                }
-            }
             if let Some(action) = map_key(state, key) {
                 apply_action(state, action)
             } else {
@@ -135,7 +124,7 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
                 state.process.selected_pid = Some(p.pid);
             }
             if state.process.tree_mode {
-                return vec![SideEffect::FetchPpidMap];
+                return vec![begin_ppid_map(state)];
             }
             Vec::new()
         }
@@ -151,14 +140,30 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             state.service.vp.selected =
                 preserve_service_selection(&filtered, state.service.selected_unit.as_deref());
             if let Some(s) = filtered.get(state.service_selected()) {
-                state.service.selected_unit = Some(s.unit.clone());
-                return vec![SideEffect::FetchServiceDetails {
-                    unit: s.unit.clone(),
-                }];
+                let unit = s.unit.clone();
+                state.service.selected_unit = Some(unit.clone());
+                return vec![begin_service_details(state, unit)];
             }
             Vec::new()
         }
-        AppEvent::ServiceDetails(info) => {
+        AppEvent::ServiceDetailsFinished {
+            request_id,
+            unit,
+            result,
+        } => {
+            if state.service.details_request.as_ref() != Some(&(request_id, unit.clone())) {
+                return Vec::new();
+            }
+            state.service.details_request = None;
+            let info = match result {
+                Ok(info) if info.unit == unit => info,
+                Ok(_) => return Vec::new(),
+                Err(error) => {
+                    state.service.pending_inspect = false;
+                    state.set_error(error);
+                    return Vec::new();
+                }
+            };
             let unit = info.unit.clone();
             if let Some(slot) = state.service.items.iter_mut().find(|s| s.unit == info.unit) {
                 *slot = info.clone();
@@ -190,7 +195,25 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             }
             Vec::new()
         }
-        AppEvent::ProcessDetails(details) => {
+        AppEvent::ProcessDetailsFinished {
+            request_id,
+            pid,
+            result,
+        } => {
+            if state.process.details_request != Some((request_id, pid)) {
+                return Vec::new();
+            }
+            state.process.details_request = None;
+            let details = match result {
+                Ok(details) if details.info.as_ref().map(|info| info.pid).unwrap_or(pid) == pid => {
+                    details
+                }
+                Ok(_) => return Vec::new(),
+                Err(error) => {
+                    state.set_error(error);
+                    return Vec::new();
+                }
+            };
             let body = details.format_body();
             let title = details
                 .info
@@ -201,7 +224,22 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             state.dialog = Some(Dialog::Inspector { title, body });
             Vec::new()
         }
-        AppEvent::FilePreviewReady(prev) => {
+        AppEvent::FilePreviewFinished {
+            request_id,
+            path,
+            result,
+        } => {
+            if state.storage.preview_request.as_ref() != Some(&(request_id, path)) {
+                return Vec::new();
+            }
+            state.storage.preview_request = None;
+            let prev = match result {
+                Ok(preview) => preview,
+                Err(error) => {
+                    state.set_error(error);
+                    return Vec::new();
+                }
+            };
             let trunc = if prev.truncated { " (truncated)" } else { "" };
             state.dialog = Some(Dialog::Inspector {
                 title: format!("Preview {}{trunc}", prev.path),
@@ -210,7 +248,18 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             state.storage.file_preview = Some(prev);
             Vec::new()
         }
-        AppEvent::PpidMap(map) => {
+        AppEvent::PpidMapFinished { request_id, result } => {
+            if state.process.ppid_request != Some(request_id) || !state.process.tree_mode {
+                return Vec::new();
+            }
+            state.process.ppid_request = None;
+            let map = match result {
+                Ok(map) => map,
+                Err(error) => {
+                    state.set_error(error);
+                    return Vec::new();
+                }
+            };
             state.process.ppids = map;
             state.set_status(format!(
                 "tree parents ready ({})",
@@ -218,19 +267,30 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             ));
             Vec::new()
         }
-        AppEvent::LogsReplaced(entries) => {
-            apply_logs_replaced(state, entries);
-            Vec::new()
-        }
-        AppEvent::LogsAppended(entries) => {
-            apply_logs_appended(state, entries);
-            Vec::new()
-        }
-        AppEvent::SmartCrcObservations(obs) => {
-            for (dev, crc) in obs {
-                state.persist.remember_crc(&dev, crc);
+        AppEvent::LogsRefreshFinished {
+            request_id,
+            unit,
+            preset,
+            result,
+        } => {
+            if state.log.refresh_request.as_ref() != Some(&(request_id, unit, preset)) {
+                return Vec::new();
             }
-            state.save_persist();
+            state.log.refresh_request = None;
+            match result {
+                Ok(entries) => apply_logs_replaced(state, entries),
+                Err(error) => state.set_error(error),
+            }
+            Vec::new()
+        }
+        AppEvent::LogsAppended {
+            session_id,
+            entries,
+        } => {
+            if state.log.follow_session.as_ref().map(|session| session.0) != Some(session_id) {
+                return Vec::new();
+            }
+            apply_logs_appended(state, entries);
             Vec::new()
         }
         AppEvent::ReportSaved(path) => {
@@ -240,42 +300,68 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             ));
             Vec::new()
         }
-        AppEvent::StorageProgress(p) => {
-            state.storage.scan_progress = Some(p);
+        AppEvent::StorageProgress {
+            request_id,
+            progress,
+        } => {
+            if state.storage.scan_request != Some(request_id) {
+                return Vec::new();
+            }
+            state.storage.scan_progress = Some(progress);
             Vec::new()
         }
-        AppEvent::StorageFinished(result) => match result {
-            Ok(mut tree) => {
-                tree.root.sort_children(state.storage.sort);
-                let truncated = tree.truncated;
-                state.storage.tree = Some(tree);
-                state.storage.scan_state = ScanState::Finished;
-                if truncated {
-                    state.set_warning(
-                        "storage scan truncated at entry budget — results are partial",
-                    );
-                } else {
-                    state.set_status("storage scan finished");
-                }
-                Vec::new()
+        AppEvent::StorageFinished { request_id, result } => {
+            if state.storage.scan_request != Some(request_id) {
+                return Vec::new();
             }
-            Err(e) => {
-                if e.to_string().contains("cancel") {
-                    state.storage.scan_state = ScanState::Cancelled;
-                    state.set_status("storage scan cancelled");
-                } else {
-                    state.storage.scan_state = ScanState::Idle;
-                    state.set_error(e);
+            state.storage.scan_request = None;
+            match result {
+                Ok(mut tree) => {
+                    tree.root.sort_children(state.storage.sort);
+                    let truncated = tree.truncated;
+                    state.storage.tree = Some(tree);
+                    state.storage.scan_state = ScanState::Finished;
+                    if truncated {
+                        state.set_warning(
+                            "storage scan truncated at entry budget — results are partial",
+                        );
+                    } else {
+                        state.set_status("storage scan finished");
+                    }
+                    Vec::new()
                 }
-                Vec::new()
+                Err(e) => {
+                    if e.to_string().contains("cancel") {
+                        state.storage.scan_state = ScanState::Cancelled;
+                        state.set_status("storage scan cancelled");
+                    } else {
+                        state.storage.scan_state = ScanState::Idle;
+                        state.set_error(e);
+                    }
+                    Vec::new()
+                }
             }
-        },
-        AppEvent::DiagnosticsUpdated {
-            findings,
-            health,
-            report,
-            probes_degraded,
-        } => {
+        }
+        AppEvent::DiagnosticsFinished { request_id, result } => {
+            if state.diagnostic.request != Some(request_id) {
+                return Vec::new();
+            }
+            state.diagnostic.request = None;
+            let outcome = match result {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    state.diagnostic.running = false;
+                    state.set_error(error);
+                    return Vec::new();
+                }
+            };
+            let crate::app::event::DiagnosticOutcome {
+                findings,
+                health,
+                report,
+                probes_degraded,
+                smart_crc_observations,
+            } = outcome;
             state.diagnostic.findings = findings;
             state.health_status = health;
             state.diagnostic.report = Some(report);
@@ -286,7 +372,11 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
                 SubsystemHealth::Degraded
             };
             state.persist.touch_diagnostic_now();
-            state.save_persist();
+            for (device, crc) in smart_crc_observations {
+                state.persist.remember_crc(&device, crc);
+            }
+            let persist = state.persist.clone();
+            let path = state.persist_path.clone();
             if state.finding_selected() >= state.diagnostic.findings.len() {
                 state.diagnostic.vp.selected = state.diagnostic.findings.len().saturating_sub(1);
             }
@@ -303,7 +393,7 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
                     health.label()
                 ));
             }
-            Vec::new()
+            vec![SideEffect::SavePersist { path, persist }]
         }
         AppEvent::ElevationRequired { unit, action } => {
             state.dialog = Some(Dialog::ConfirmElevation {
@@ -323,6 +413,28 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
                 OperationResult::Failure(err) => state.set_error(err),
             }
             vec![SideEffect::RefreshProcesses, SideEffect::RefreshServices]
+        }
+        AppEvent::ConfigSaveFinished {
+            path,
+            reason,
+            result,
+        } => {
+            match result {
+                Ok(()) => state.set_success(format!(
+                    "{} → {}",
+                    reason.success_message(),
+                    crate::sanitize::sanitize_path_display(&path)
+                )),
+                Err(error) => state.set_error(crate::error::AppError::Configuration {
+                    path,
+                    message: format!(
+                        "{} applied for this session but could not be saved: {}",
+                        reason.subject(),
+                        error.user_message()
+                    ),
+                }),
+            }
+            Vec::new()
         }
         AppEvent::Error(err) => {
             state.set_error(err);
