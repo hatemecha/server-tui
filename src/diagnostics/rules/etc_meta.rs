@@ -36,3 +36,30 @@ pub fn rule_etc_meta(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         degradable: true,
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::EtcMetaChange;
+
+    #[test]
+    fn etc_meta_is_info_only() {
+        let snap = DiagnosticSnapshot {
+            etc_mtime_notable: vec![EtcMetaChange {
+                path: "/etc/hosts".into(),
+                kind: "mtime".into(),
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_etc_meta(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "config.etc.recent_meta");
+        assert_eq!(f[0].severity, Severity::Info);
+        assert_eq!(f[0].confidence, Confidence::Low);
+    }
+
+    #[test]
+    fn etc_meta_empty_is_silent() {
+        assert!(rule_etc_meta(&DiagnosticSnapshot::default()).is_empty());
+    }
+}

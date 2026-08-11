@@ -41,3 +41,29 @@ pub fn rule_pstore(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         degradable: true,
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PstoreEntry;
+
+    #[test]
+    fn pstore_entries_emit_warning() {
+        let snap = DiagnosticSnapshot {
+            pstore_entries: vec![PstoreEntry {
+                name: "dmesg-0".into(),
+                bytes: 12,
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_pstore(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "boot.pstore.present");
+        assert_eq!(f[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn pstore_empty_is_silent() {
+        assert!(rule_pstore(&DiagnosticSnapshot::default()).is_empty());
+    }
+}

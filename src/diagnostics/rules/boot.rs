@@ -36,3 +36,39 @@ pub fn rule_previous_boot(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         degradable: true,
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PreviousBootSummary;
+
+    #[test]
+    fn boot_clean_hint_emits_nothing() {
+        let snap = DiagnosticSnapshot {
+            previous_boot_summary: Some(PreviousBootSummary {
+                boot_id: "abc".into(),
+                unclean_hint: false,
+                note: "clean".into(),
+            }),
+            ..DiagnosticSnapshot::default()
+        };
+        assert!(rule_previous_boot(&snap).is_empty());
+    }
+
+    #[test]
+    fn boot_unclean_emits_warning_without_panic_claim() {
+        let snap = DiagnosticSnapshot {
+            previous_boot_summary: Some(PreviousBootSummary {
+                boot_id: "abc".into(),
+                unclean_hint: true,
+                note: "journal ended without clean shutdown marker".into(),
+            }),
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_previous_boot(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "boot.previous.abc");
+        assert_eq!(f[0].severity, Severity::Warning);
+        assert!(!f[0].title.to_lowercase().contains("panic"));
+    }
+}

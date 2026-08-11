@@ -413,4 +413,16 @@ mod tests {
         assert!(!unit_looks_safe("../evil.service"));
         assert!(!unit_looks_safe("a b.service"));
     }
+
+    #[test]
+    fn unit_looks_safe_rejects_empty_null_path_and_non_service() {
+        assert!(!unit_looks_safe(""));
+        assert!(!unit_looks_safe("ssh.timer"));
+        assert!(!unit_looks_safe("ssh.socket"));
+        assert!(!unit_looks_safe("a\0b.service"));
+        assert!(!unit_looks_safe("/abs.service"));
+        assert!(unit_looks_safe("user@1000.service"));
+        assert!(unit_looks_safe("foo:bar.service"));
+        assert!(!unit_looks_safe("ünicode.service"));
+    }
 }

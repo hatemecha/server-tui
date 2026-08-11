@@ -134,4 +134,26 @@ mod tests {
         assert!(!f.title.to_lowercase().contains("panic"));
         assert!(!f.summary.to_lowercase().contains("kernel panic"));
     }
+
+    #[test]
+    fn health_surfaces_critical_when_subsystems_unobservable() {
+        use crate::model::{Category, Confidence, Evidence, Finding, Severity};
+        let findings = vec![Finding {
+            id: "x".into(),
+            title: "t".into(),
+            summary: "s".into(),
+            severity: Severity::Critical,
+            confidence: Confidence::High,
+            category: Category::Services,
+            evidence: Evidence {
+                summary: "e".into(),
+                details: vec![],
+            },
+            targets: vec![],
+            suggested_check: None,
+            degradable: true,
+        }];
+        let status = compute_health_status(&findings, false, false);
+        assert_eq!(status, HealthStatus::Critical);
+    }
 }

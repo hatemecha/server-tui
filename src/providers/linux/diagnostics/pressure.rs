@@ -20,7 +20,7 @@ pub(crate) fn probe_psi() -> Result<Option<PsiSnapshot>, AppError> {
     }))
 }
 
-fn parse_psi_avg10(content: Option<&str>, kind: &str) -> Option<f32> {
+pub(crate) fn parse_psi_avg10(content: Option<&str>, kind: &str) -> Option<f32> {
     let content = content?;
     for line in content.lines() {
         if !line.starts_with(kind) {
@@ -75,4 +75,19 @@ pub(crate) fn probe_resource_pressure() -> Result<Option<ResourcePressureSnapsho
         n_cpus,
         disk_max_used_pct,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_psi_avg10;
+
+    #[test]
+    fn parse_psi_avg10_reads_some_and_full() {
+        let sample = "some avg10=1.50 avg60=0.00 avg300=0.00 total=0\n\
+full avg10=2.25 avg60=0.00 avg300=0.00 total=0\n";
+        assert_eq!(parse_psi_avg10(Some(sample), "some"), Some(1.5));
+        assert_eq!(parse_psi_avg10(Some(sample), "full"), Some(2.25));
+        assert_eq!(parse_psi_avg10(None, "some"), None);
+        assert_eq!(parse_psi_avg10(Some("garbage"), "some"), None);
+    }
 }

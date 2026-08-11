@@ -40,3 +40,53 @@ pub fn rule_journal_critical(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::JournalCriticalGroup;
+
+    #[test]
+    fn journal_critical_severity_by_count() {
+        let mut snap = DiagnosticSnapshot {
+            journal_observable: true,
+            ..DiagnosticSnapshot::default()
+        };
+        snap.journal_critical.push(JournalCriticalGroup {
+            unit: "ssh.service".into(),
+            count: 5,
+            sample_message: "boom".into(),
+        });
+        snap.journal_critical.push(JournalCriticalGroup {
+            unit: "cron.service".into(),
+            count: 1,
+            sample_message: "minor".into(),
+        });
+        let f = rule_journal_critical(&snap);
+        assert_eq!(f.len(), 2);
+        let ssh = f
+            .iter()
+            .find(|x| x.id == "journal.critical.ssh.service")
+            .unwrap();
+        let cron = f
+            .iter()
+            .find(|x| x.id == "journal.critical.cron.service")
+            .unwrap();
+        assert_eq!(ssh.severity, Severity::Critical);
+        assert_eq!(cron.severity, Severity::Warning);
+    }
+
+    #[test]
+    fn journal_unobservable_is_silent() {
+        let snap = DiagnosticSnapshot {
+            journal_observable: false,
+            journal_critical: vec![JournalCriticalGroup {
+                unit: "x.service".into(),
+                count: 9,
+                sample_message: "x".into(),
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        assert!(rule_journal_critical(&snap).is_empty());
+    }
+}

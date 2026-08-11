@@ -44,3 +44,30 @@ pub fn rule_coredumps(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         degradable: true,
     }]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::CoredumpEntry;
+
+    #[test]
+    fn coredumps_present_emits_warning() {
+        let snap = DiagnosticSnapshot {
+            coredumps: vec![CoredumpEntry {
+                exe: "/usr/bin/foo".into(),
+                signal: Some("11".into()),
+                timestamp: "t".into(),
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_coredumps(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "crash.coredump.recent");
+        assert_eq!(f[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn coredumps_empty_is_silent() {
+        assert!(rule_coredumps(&DiagnosticSnapshot::default()).is_empty());
+    }
+}

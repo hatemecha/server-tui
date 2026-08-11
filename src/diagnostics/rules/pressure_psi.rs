@@ -57,3 +57,49 @@ pub fn rule_psi(snap: &DiagnosticSnapshot) -> Vec<Finding> {
     }
     findings
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PsiSnapshot;
+
+    #[test]
+    fn psi_memory_full_emits_warning() {
+        let snap = DiagnosticSnapshot {
+            psi: Some(PsiSnapshot {
+                memory_some_avg10: 50.0,
+                memory_full_avg10: 10.0,
+                cpu_some_avg10: 0.0,
+                io_some_avg10: 0.0,
+            }),
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_psi(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "pressure.psi.memory_full");
+        assert_eq!(f[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn psi_memory_some_is_info_not_full() {
+        let snap = DiagnosticSnapshot {
+            psi: Some(PsiSnapshot {
+                memory_some_avg10: 20.0,
+                memory_full_avg10: 0.0,
+                cpu_some_avg10: 0.0,
+                io_some_avg10: 0.0,
+            }),
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_psi(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "pressure.psi.memory_some");
+        assert_eq!(f[0].severity, Severity::Info);
+    }
+
+    #[test]
+    fn psi_absent_is_silent() {
+        let snap = DiagnosticSnapshot::default();
+        assert!(rule_psi(&snap).is_empty());
+    }
+}

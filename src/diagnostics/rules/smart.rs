@@ -117,4 +117,43 @@ mod tests {
         let f = rule_smart(&snap);
         assert!(f.iter().any(|x| x.severity == Severity::Warning));
     }
+
+    #[test]
+    fn smart_health_failed_is_critical() {
+        let snap = DiagnosticSnapshot {
+            smart_disks: vec![SmartDiskSnapshot {
+                device: "/dev/sdb".into(),
+                available: true,
+                passed: Some(false),
+                uda_crc_error_count: None,
+                prev_uda_crc_error_count: None,
+                summary: "FAILED".into(),
+                details: vec![],
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_smart(&snap);
+        let failed = f
+            .iter()
+            .find(|x| x.id == "smart.health._dev_sdb")
+            .expect("FAILED health finding");
+        assert_eq!(failed.severity, Severity::Critical);
+    }
+
+    #[test]
+    fn smart_unavailable_disk_skipped() {
+        let snap = DiagnosticSnapshot {
+            smart_disks: vec![SmartDiskSnapshot {
+                device: "/dev/sdc".into(),
+                available: false,
+                passed: Some(false),
+                uda_crc_error_count: Some(99),
+                prev_uda_crc_error_count: None,
+                summary: "n/a".into(),
+                details: vec![],
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        assert!(rule_smart(&snap).is_empty());
+    }
 }

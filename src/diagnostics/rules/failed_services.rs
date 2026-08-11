@@ -41,3 +41,42 @@ pub fn rule_failed_services(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::FailedUnitSnapshot;
+
+    #[test]
+    fn failed_services_silent_when_systemd_unobservable() {
+        let snap = DiagnosticSnapshot {
+            systemd_observable: false,
+            failed_units: vec![FailedUnitSnapshot {
+                unit: "broken.service".into(),
+                active_state: "failed".into(),
+                sub_state: "failed".into(),
+                description: "x".into(),
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        assert!(rule_failed_services(&snap).is_empty());
+    }
+
+    #[test]
+    fn failed_service_emits_critical_with_sanitized_id() {
+        let snap = DiagnosticSnapshot {
+            systemd_observable: true,
+            failed_units: vec![FailedUnitSnapshot {
+                unit: "broken.service".into(),
+                active_state: "failed".into(),
+                sub_state: "failed".into(),
+                description: "x".into(),
+            }],
+            ..DiagnosticSnapshot::default()
+        };
+        let f = rule_failed_services(&snap);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].id, "svc.failed.broken.service");
+        assert_eq!(f[0].severity, Severity::Critical);
+    }
+}
