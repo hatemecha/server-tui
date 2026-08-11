@@ -6,15 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Settings is a checkbox / cycle form: Tab sections↔options, Space toggles, ←/→ cycles (no per-setting letter keys)
+- Nav/tabs use reverse-video selection for clearer current screen
+
 ### Fixed
 
 - First run opens **Dashboard** (Settings remains optional via `7`); digit keys `1`–`7` always switch screens even on Settings
 - Confirm dialogs use filled Title-Case buttons instead of `[ CANCEL ]` / `[ YES ]` brackets
-
-### Changed
-
-- Settings safety/diagnostics toggles moved to `T`/`K`/`A` and `M`/`L` so they no longer fight screen navigation
-- Nav/tabs use reverse-video selection for clearer current screen
 
 ## [0.3.1] — 2026-08-11
 

@@ -52,7 +52,7 @@ pub fn terms() -> &'static [GlossaryTerm] {
         },
         GlossaryTerm {
             term: "panes",
-            definition: "Nav · Content · Details. Tab / Shift+Tab enters content and cycles panes; accent border marks the active pane. Digits switch screens.",
+            definition: "Nav · Content · Details. Tab / Shift+Tab enters content and cycles panes; accent border marks the active pane. Digits switch screens. In Settings, Tab switches sections↔options; Space toggles [x]/[ ]; ←/→ cycles ‹ values ›.",
             aliases: &["tab", "focus"],
             screens: &[
                 Screen::Dashboard,

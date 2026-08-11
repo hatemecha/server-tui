@@ -45,6 +45,16 @@ impl TerminalProfile {
         }
     }
 
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Auto => Self::Monochrome,
+            Self::Modern => Self::Auto,
+            Self::Tty16 => Self::Modern,
+            Self::HighContrast => Self::Tty16,
+            Self::Monochrome => Self::HighContrast,
+        }
+    }
+
     pub fn resolve(self, color_enabled: bool) -> Self {
         match self {
             Self::Auto => {
@@ -103,6 +113,15 @@ impl PerformanceProfile {
             Self::LowResource => Self::Balanced,
             Self::Balanced => Self::Responsive,
             Self::Responsive => Self::Auto,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Auto => Self::Responsive,
+            Self::LowResource => Self::Auto,
+            Self::Balanced => Self::LowResource,
+            Self::Responsive => Self::Balanced,
         }
     }
 

@@ -72,14 +72,32 @@ pub(crate) fn move_selection(state: &mut AppState, delta: i32) {
         return;
     }
     if state.screen == Screen::Settings && !state.glossary_open() {
-        let len = crate::settings::SETTINGS_SECTIONS.len();
-        if len == 0 {
-            return;
-        }
-        if delta < 0 {
-            state.settings.section = state.settings.section.saturating_sub(1);
-        } else {
-            state.settings.section = (state.settings.section + 1).min(len - 1);
+        use crate::app::action::FocusPane;
+        use crate::settings::{rows_for_section, SETTINGS_SECTIONS};
+        match state.focus {
+            FocusPane::Nav => {
+                let len = SETTINGS_SECTIONS.len();
+                if len == 0 {
+                    return;
+                }
+                if delta < 0 {
+                    state.settings.section = state.settings.section.saturating_sub(1);
+                } else {
+                    state.settings.section = (state.settings.section + 1).min(len - 1);
+                }
+                state.settings.selected = 0;
+            }
+            FocusPane::Content | FocusPane::Details => {
+                let len = rows_for_section(state.settings.section).len();
+                if len == 0 {
+                    return;
+                }
+                if delta < 0 {
+                    state.settings.selected = state.settings.selected.saturating_sub(1);
+                } else {
+                    state.settings.selected = (state.settings.selected + 1).min(len - 1);
+                }
+            }
         }
         return;
     }
@@ -151,6 +169,28 @@ pub(crate) fn sync_selection_identity(state: &mut AppState) {
 }
 
 pub(crate) fn set_selection(state: &mut AppState, idx: usize) {
+    if state.screen == Screen::Settings && !state.glossary_open() {
+        use crate::app::action::FocusPane;
+        use crate::settings::{rows_for_section, SETTINGS_SECTIONS};
+        match state.focus {
+            FocusPane::Nav => {
+                let len = SETTINGS_SECTIONS.len();
+                if len == 0 {
+                    return;
+                }
+                state.settings.section = idx.min(len - 1);
+                state.settings.selected = 0;
+            }
+            FocusPane::Content | FocusPane::Details => {
+                let len = rows_for_section(state.settings.section).len();
+                if len == 0 {
+                    return;
+                }
+                state.settings.selected = idx.min(len - 1);
+            }
+        }
+        return;
+    }
     let len = list_len(state);
     let vis = visible_rows(state);
     let vp = current_vp_mut(state);

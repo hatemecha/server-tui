@@ -85,15 +85,12 @@ No delete.
 
 | Key | Action |
 |-----|--------|
-| `j`/`k` | Section |
-| `t` / `p` | Terminal / performance profile |
-| `T` / `K` / `A` | Safety toggles (sigterm / sigkill / service confirms) |
-| `M` / `L` | SMART probes / diagnostics light-scan |
-| `w` / `c` | Wallboard / color |
-| `S` / Enter | Atomic save |
-| `o` | Complete onboarding (confirm) |
-| `d` | Reset settings (confirm) |
-| `C` | Cleanup old reports (retention days) |
+| `Tab` / `Shift+Tab` | Sections menu ↔ options list |
+| `j`/`k` · arrows | Move (section or option, depending on focus) |
+| `Space` / Enter | Toggle checkbox · cycle value · run action |
+| `←` / `→` | Cycle profile/preset (checkbox: off / on) |
+| `S` | Save config (also via **Save settings** row) |
+| Home / End | First / last item in focused pane |
 
 ## CLI
 

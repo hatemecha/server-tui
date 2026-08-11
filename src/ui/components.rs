@@ -200,24 +200,20 @@ pub fn footer_hints(state: &AppState) -> String {
         crate::app::Screen::Settings => {
             hints.extend([
                 KeyHint {
-                    key: "T/K/A",
-                    action: "safety",
+                    key: "Tab",
+                    action: "sections/options",
                 },
                 KeyHint {
-                    key: "M/L",
-                    action: "diag",
+                    key: "Space",
+                    action: "toggle/activate",
                 },
                 KeyHint {
-                    key: "t/p",
-                    action: "profiles",
+                    key: "←/→",
+                    action: "cycle",
                 },
                 KeyHint {
                     key: "S",
                     action: "save",
-                },
-                KeyHint {
-                    key: "d",
-                    action: "reset",
                 },
             ]);
         }

@@ -99,6 +99,10 @@ pub enum AppAction {
     CycleTerminalProfile,
     CyclePerformanceProfile,
     ToggleSetting(SettingId),
+    /// Space / Enter on the focused Settings row.
+    ActivateFocusedSetting,
+    /// ←/→ on a cycle row (or checkbox set off/on). Negative = left/prev.
+    AdjustFocusedSetting(i8),
     CleanupReportsNow,
     Quit,
     // Internal typed admin intents after confirmation.

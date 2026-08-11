@@ -51,7 +51,7 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         Screen::Logs => map_logs(key),
         Screen::Storage => map_storage(state, key),
         Screen::Diagnostics => map_diagnostics(key),
-        Screen::Settings => map_settings(key),
+        Screen::Settings => map_settings(state, key),
     }
 }
 
@@ -244,27 +244,28 @@ fn map_storage(state: &AppState, key: KeyEvent) -> Option<AppAction> {
     }
 }
 
-fn map_settings(key: KeyEvent) -> Option<AppAction> {
-    use crate::settings::SettingId;
+fn map_settings(state: &AppState, key: KeyEvent) -> Option<AppAction> {
+    use crate::app::action::FocusPane;
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => Some(AppAction::MoveUp),
         KeyCode::Down | KeyCode::Char('j') => Some(AppAction::MoveDown),
+        KeyCode::Home => Some(AppAction::Home),
+        KeyCode::End => Some(AppAction::End),
+        KeyCode::Left if state.focus == FocusPane::Content => {
+            Some(AppAction::AdjustFocusedSetting(-1))
+        }
+        KeyCode::Right if state.focus == FocusPane::Content => {
+            Some(AppAction::AdjustFocusedSetting(1))
+        }
+        KeyCode::Char(' ') | KeyCode::Enter if state.focus == FocusPane::Content => {
+            Some(AppAction::ActivateFocusedSetting)
+        }
+        // From the sections pane, ← / Space / Enter jump into options.
+        KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter if state.focus == FocusPane::Nav => {
+            Some(AppAction::NextFocus)
+        }
         KeyCode::Char('r') => Some(AppAction::Refresh),
-        KeyCode::Char('d') => Some(AppAction::ResetSettings),
         KeyCode::Char('S') => Some(AppAction::SaveSettings),
-        KeyCode::Char('o') => Some(AppAction::CompleteOnboarding),
-        KeyCode::Char('t') => Some(AppAction::CycleTerminalProfile),
-        KeyCode::Char('p') => Some(AppAction::CyclePerformanceProfile),
-        KeyCode::Char('w') => Some(AppAction::ToggleSetting(SettingId::Wallboard)),
-        KeyCode::Char('c') => Some(AppAction::ToggleSetting(SettingId::Color)),
-        // Letter toggles — digits 1–7 are reserved for screen navigation.
-        KeyCode::Char('T') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigterm)),
-        KeyCode::Char('K') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigkill)),
-        KeyCode::Char('A') => Some(AppAction::ToggleSetting(SettingId::ConfirmServiceActions)),
-        KeyCode::Char('M') => Some(AppAction::ToggleSetting(SettingId::EnableSmartProbes)),
-        KeyCode::Char('L') => Some(AppAction::ToggleSetting(SettingId::DiagnosticsLightScan)),
-        KeyCode::Char('C') => Some(AppAction::CleanupReportsNow),
-        KeyCode::Enter => Some(AppAction::SaveSettings),
         _ => None,
     }
 }

@@ -6,7 +6,6 @@ use server_tui::app::action::{AppAction, Screen};
 use server_tui::app::state::AppState;
 use server_tui::app::update::map_key;
 use server_tui::config::Config;
-use server_tui::settings::SettingId;
 use server_tui::viewport::content_rows_from_terminal;
 
 fn key(c: char) -> KeyEvent {
@@ -48,26 +47,39 @@ fn global_digits_change_screen_outside_settings() {
 }
 
 #[test]
-fn settings_letter_toggles() {
-    // Authoritative map is map_key (app/update/keymap.rs), not a parallel registry.
+fn settings_space_activates_focused_row() {
+    use server_tui::app::action::FocusPane;
     let mut state = demo_state();
     state.screen = Screen::Settings;
-    let expected = [
-        ('T', SettingId::ConfirmSigterm),
-        ('K', SettingId::ConfirmSigkill),
-        ('A', SettingId::ConfirmServiceActions),
-        ('M', SettingId::EnableSmartProbes),
-        ('L', SettingId::DiagnosticsLightScan),
-    ];
-    for (ch, id) in expected {
-        assert!(
-            matches!(
-                map_key(&state, key(ch)),
-                Some(AppAction::ToggleSetting(sid)) if sid == id
-            ),
-            "settings toggle {ch}"
-        );
-    }
+    state.focus = FocusPane::Content;
+    // Safety section: first row is ConfirmSigterm checkbox.
+    state.settings.section = 6;
+    state.settings.selected = 0;
+    let before = state.config.confirm_sigterm;
+    let action = map_key(
+        &state,
+        KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+    )
+    .expect("space");
+    assert!(matches!(action, AppAction::ActivateFocusedSetting));
+    let effects = server_tui::app::update::apply_action(&mut state, action);
+    let _ = effects;
+    assert_ne!(state.config.confirm_sigterm, before);
+}
+
+#[test]
+fn settings_arrows_adjust_cycle_row() {
+    use server_tui::app::action::FocusPane;
+    let mut state = demo_state();
+    state.screen = Screen::Settings;
+    state.focus = FocusPane::Content;
+    state.settings.section = 1; // Appearance → terminal profile
+    state.settings.selected = 0;
+    let before = state.terminal_profile;
+    let action = map_key(&state, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).expect("right");
+    assert!(matches!(action, AppAction::AdjustFocusedSetting(1)));
+    server_tui::app::update::apply_action(&mut state, action);
+    assert_ne!(state.terminal_profile, before);
 }
 
 #[test]

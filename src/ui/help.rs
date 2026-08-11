@@ -16,7 +16,7 @@ Services:  s start  x stop  r refresh  R restart  u reload  e enable  d disable 
 Logs:      f follow  n/N next/prev match  p min priority  w wrap\n\
 Storage:   Enter open  Backspace parent  s sort  a apparent/disk  x stay-on-fs  Esc cancel scan\n\
 Diagnostics: Enter open related screen  o report  a acknowledge  r refresh\n\
-Settings:  T/K/A safety toggles  M/L diag toggles  t terminal  p performance  w wallboard  c color  S save  d reset\n\n\
+Settings:  Tab sections↔options  j/k move  Space toggle/activate  ←/→ cycle  S save\n\n\
 CLI: server-tui doctor [--report|--json|--include-sensitive|--demo]\n\
 Modes: --demo  --read-only  --no-color  --ascii\n\
 Config: ~/.config/server-tui/config.toml\n\n\

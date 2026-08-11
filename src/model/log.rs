@@ -25,6 +25,17 @@ impl LogPreset {
         }
     }
 
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Important => Self::All,
+            Self::CurrentBoot => Self::Important,
+            Self::LastHour => Self::CurrentBoot,
+            Self::Kernel => Self::LastHour,
+            Self::SelectedService => Self::Kernel,
+            Self::All => Self::SelectedService,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Important => "important",

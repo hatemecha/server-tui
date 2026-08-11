@@ -39,6 +39,10 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 effects.push(SideEffect::RefreshDiagnostics);
                 state.diagnostic.running = true;
             }
+            if screen == Screen::Settings {
+                state.focus = FocusPane::Content;
+                state.settings.selected = 0;
+            }
         }
         AppAction::Refresh => match state.screen {
             Screen::Dashboard => effects.push(SideEffect::RefreshMetrics),
@@ -60,17 +64,31 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
             Screen::Settings => state.set_status("settings"),
         },
         AppAction::NextFocus => {
-            state.focus = match state.focus {
-                FocusPane::Nav => FocusPane::Content,
-                FocusPane::Content => FocusPane::Details,
-                FocusPane::Details => FocusPane::Nav,
+            state.focus = if state.screen == Screen::Settings {
+                match state.focus {
+                    FocusPane::Nav => FocusPane::Content,
+                    FocusPane::Content | FocusPane::Details => FocusPane::Nav,
+                }
+            } else {
+                match state.focus {
+                    FocusPane::Nav => FocusPane::Content,
+                    FocusPane::Content => FocusPane::Details,
+                    FocusPane::Details => FocusPane::Nav,
+                }
             };
         }
         AppAction::PrevFocus => {
-            state.focus = match state.focus {
-                FocusPane::Nav => FocusPane::Details,
-                FocusPane::Content => FocusPane::Nav,
-                FocusPane::Details => FocusPane::Content,
+            state.focus = if state.screen == Screen::Settings {
+                match state.focus {
+                    FocusPane::Content | FocusPane::Details => FocusPane::Nav,
+                    FocusPane::Nav => FocusPane::Content,
+                }
+            } else {
+                match state.focus {
+                    FocusPane::Nav => FocusPane::Details,
+                    FocusPane::Content => FocusPane::Nav,
+                    FocusPane::Details => FocusPane::Content,
+                }
             };
         }
         AppAction::MoveUp => move_selection(state, -1),
@@ -398,6 +416,8 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         | AppAction::CycleTerminalProfile
         | AppAction::CyclePerformanceProfile
         | AppAction::ToggleSetting(_)
+        | AppAction::ActivateFocusedSetting
+        | AppAction::AdjustFocusedSetting(_)
         | AppAction::ResetSettings => {
             if let Some(extra) = crate::app::inspect_actions::apply_inspect_action(state, &action) {
                 effects.extend(extra);
