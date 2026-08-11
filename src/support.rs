@@ -1,7 +1,5 @@
 //! Redacted support report generation (CLI + TUI export helper).
 
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,6 +16,29 @@ pub enum SupportFormat {
     Text,
     Markdown,
     Json,
+}
+
+/// Formal redaction policy for exports / support / doctor reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RedactionPolicy {
+    /// When false (default), command lines are truncated to binary name.
+    pub include_sensitive: bool,
+}
+
+impl RedactionPolicy {
+    pub fn safe() -> Self {
+        Self::default()
+    }
+
+    pub fn include_sensitive() -> Self {
+        Self {
+            include_sensitive: true,
+        }
+    }
+
+    pub fn redact_cmd(self, cmd: &str) -> String {
+        redact_cmd(cmd, self.include_sensitive)
+    }
 }
 
 impl SupportFormat {
@@ -217,25 +238,14 @@ pub fn save_report(
         p.to_path_buf()
     } else {
         let dir = default_reports_dir();
-        fs::create_dir_all(&dir).map_err(|e| AppError::Internal(e.to_string()))?;
+        crate::fsutil::ensure_private_dir(&dir)?;
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
         dir.join(format!("support-{ts}.{}", format.extension()))
     };
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| AppError::Internal(e.to_string()))?;
-    }
-    let tmp = path.with_extension(format!("{}.tmp", format.extension()));
-    {
-        let mut f = fs::File::create(&tmp).map_err(|e| AppError::Internal(e.to_string()))?;
-        f.write_all(body.as_bytes())
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-        f.sync_all()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-    }
-    fs::rename(&tmp, &path).map_err(|e| AppError::Internal(e.to_string()))?;
+    crate::fsutil::write_private_atomic(&path, body.as_bytes())?;
     Ok(path)
 }
 

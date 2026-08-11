@@ -1,5 +1,6 @@
 //! SMART / disk health rules (pure). Never requests self-tests.
 
+use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::{
     Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
     Severity, SuggestedCheck,
@@ -73,12 +74,6 @@ pub fn rule_smart(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         }
     }
     out
-}
-
-fn sanitize_id(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
 }
 
 #[cfg(test)]

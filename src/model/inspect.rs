@@ -214,15 +214,22 @@ impl MenuItem {
 }
 
 /// Build process tree rows (on-demand; indent by depth). Returns (pid, display name, depth).
+/// Cycle/corrupt PPID graphs are guarded with a visited set and max depth.
 pub fn build_process_tree(
     procs: &[ProcessInfo],
     details_ppid: &[(u32, Option<u32>)],
 ) -> Vec<(u32, String, usize)> {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
+    const MAX_DEPTH: usize = 64;
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut ppid_of: HashMap<u32, Option<u32>> = HashMap::new();
     let names: HashMap<u32, String> = procs.iter().map(|p| (p.pid, p.name.clone())).collect();
     for (pid, ppid) in details_ppid {
+        // Ignore self-parent / nonsense that would loop immediately.
+        if ppid == &Some(*pid) {
+            ppid_of.insert(*pid, None);
+            continue;
+        }
         ppid_of.insert(*pid, *ppid);
         if let Some(parent) = ppid {
             children.entry(*parent).or_default().push(*pid);
@@ -245,25 +252,36 @@ pub fn build_process_tree(
         .collect();
     roots.sort_unstable();
     let mut out = Vec::new();
+    let mut visited = HashSet::new();
     fn walk(
         pid: u32,
         depth: usize,
         children: &HashMap<u32, Vec<u32>>,
         names: &HashMap<u32, String>,
+        visited: &mut HashSet<u32>,
         out: &mut Vec<(u32, String, usize)>,
     ) {
+        if depth > MAX_DEPTH || !visited.insert(pid) {
+            return;
+        }
         let name = names.get(&pid).cloned().unwrap_or_else(|| "?".into());
         out.push((pid, name, depth));
         if let Some(kids) = children.get(&pid) {
             let mut kids = kids.clone();
             kids.sort_unstable();
             for k in kids {
-                walk(k, depth + 1, children, names, out);
+                walk(k, depth + 1, children, names, visited, out);
             }
         }
     }
     for r in roots {
-        walk(r, 0, &children, &names, &mut out);
+        walk(r, 0, &children, &names, &mut visited, &mut out);
+    }
+    // Orphans not reached (corrupt graph) — append flat.
+    for p in procs {
+        if visited.insert(p.pid) {
+            out.push((p.pid, p.name.clone(), 0));
+        }
     }
     out
 }

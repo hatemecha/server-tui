@@ -1,20 +1,23 @@
-//! Application state.
+//! Application state shell: navigation, overlays, and screen substates.
 
 use std::path::PathBuf;
 
 use crate::app::action::{ConfirmChoice, FocusPane, Screen};
+use crate::app::substates::{
+    DiagnosticState, LogState, ProcessState, ServiceState, SettingsState, StorageState,
+};
 use crate::config::Config;
 use crate::error::AppError;
 use crate::model::{
-    finding_matches, visible_processes, Finding, HealthStatus, LogBuffer, LogPriority,
-    MetricHistory, ProcessInfo, ProcessSort, ServiceActionKind, ServiceFilter, ServiceInfo,
-    StorageNode, StorageProgress, StorageSort, StorageTree, SubsystemHealth, SubsystemHealthMap,
-    SystemMetrics,
+    finding_matches, visible_processes, Finding, HealthStatus, MetricHistory, ProcessInfo,
+    ServiceActionKind, StorageNode, SubsystemHealth, SubsystemHealthMap, SystemMetrics,
 };
 use crate::persist::AppPersistState;
-use crate::ui::status::{expire_toast, StatusToast, ToastKind};
-use crate::ui::theme::{PerformanceProfile, TerminalProfile};
-use crate::ui::viewport::ViewportState;
+use crate::profile::{PerformanceProfile, TerminalProfile};
+use crate::status::{expire_toast, StatusToast, ToastKind};
+use crate::viewport::ViewportState;
+
+pub use crate::app::substates::ScanState;
 
 #[derive(Debug, Clone)]
 pub enum Dialog {
@@ -29,6 +32,12 @@ pub enum Dialog {
         choice: ConfirmChoice,
     },
     ConfirmService {
+        unit: String,
+        action: ServiceActionKind,
+        choice: ConfirmChoice,
+    },
+    /// Explicit elevation: administrator permission is required (never silent).
+    ConfirmElevation {
         unit: String,
         action: ServiceActionKind,
         choice: ConfirmChoice,
@@ -55,14 +64,6 @@ pub enum Dialog {
         items: Vec<crate::model::MenuItem>,
         selected: usize,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScanState {
-    Idle,
-    Running,
-    Cancelled,
-    Finished,
 }
 
 /// Per-screen search queries (not a single shared string), plus glossary overlay.
@@ -111,7 +112,7 @@ pub struct AppState {
     pub width: u16,
     pub height: u16,
     pub should_quit: bool,
-    pub status_message: Option<String>, // legacy mirror of toast message
+    pub status_message: Option<String>,
     pub last_error: Option<AppError>,
     pub dialog: Option<Dialog>,
     pub searching: bool,
@@ -122,45 +123,13 @@ pub struct AppState {
     pub health_status: HealthStatus,
     pub subsystem_health: SubsystemHealthMap,
 
-    pub processes: Vec<ProcessInfo>,
-    pub process_sort: ProcessSort,
-    pub process_vp: ViewportState,
-    pub process_selected_pid: Option<u32>,
-    pub process_follow_pid: Option<u32>,
-    pub process_tree_mode: bool,
-    pub show_full_cmd: bool,
+    pub process: ProcessState,
+    pub service: ServiceState,
+    pub log: LogState,
+    pub storage: StorageState,
+    pub diagnostic: DiagnosticState,
+    pub settings: SettingsState,
 
-    pub services: Vec<ServiceInfo>,
-    pub service_filter: ServiceFilter,
-    pub service_vp: ViewportState,
-    pub service_selected_unit: Option<String>,
-    pub failed_only: bool,
-
-    pub logs: LogBuffer,
-    pub log_unit: Option<String>,
-    pub log_follow: bool,
-    pub log_wrap: bool,
-    pub log_min_priority: LogPriority,
-    pub log_vp: ViewportState,
-    pub log_match_idx: Option<usize>,
-    pub log_preset: crate::model::LogPreset,
-
-    pub scan_path: PathBuf,
-    pub scan_state: ScanState,
-    pub scan_progress: Option<StorageProgress>,
-    pub storage_tree: Option<StorageTree>,
-    pub storage_cwd: Vec<String>,
-    pub storage_vp: ViewportState,
-    pub storage_tab: crate::model::StorageTab,
-    pub storage_sort: StorageSort,
-    pub use_apparent: bool,
-    pub stay_on_fs: bool,
-
-    pub findings: Vec<Finding>,
-    pub finding_vp: ViewportState,
-    pub diagnostic_deep: bool,
-    pub diagnostic_running: bool,
-    pub diagnostic_report: Option<String>,
     pub persist: AppPersistState,
     pub persist_path: PathBuf,
     pub screen_before_overlay: Option<Screen>,
@@ -169,17 +138,9 @@ pub struct AppState {
     pub terminal_profile: TerminalProfile,
     pub performance_profile: PerformanceProfile,
     pub wallboard: bool,
-    pub settings_section: usize,
-    pub settings_selected: usize,
-    pub onboarding_pending: bool,
     pub activity: std::collections::VecDeque<String>,
     pub viewport_rows: usize,
     pub config_path: PathBuf,
-    pub process_details: Option<crate::model::ProcessDetails>,
-    pub process_ppids: Vec<(u32, Option<u32>)>,
-    pub file_preview: Option<crate::model::FilePreview>,
-    pub service_recent_logs: Vec<crate::model::LogEntry>,
-    pub pending_service_inspect: bool,
 }
 
 impl AppState {
@@ -216,41 +177,12 @@ impl AppState {
             history,
             health_status: HealthStatus::Unknown,
             subsystem_health: SubsystemHealthMap::default(),
-            processes: Vec::new(),
-            process_sort: ProcessSort::Cpu,
-            process_vp: ViewportState::new(),
-            process_selected_pid: None,
-            process_follow_pid: None,
-            process_tree_mode: false,
-            show_full_cmd: false,
-            services: Vec::new(),
-            service_filter: ServiceFilter::All,
-            service_vp: ViewportState::new(),
-            service_selected_unit: None,
-            failed_only: false,
-            logs: LogBuffer::new(max_logs),
-            log_unit: None,
-            log_follow: false,
-            log_wrap: false,
-            log_min_priority: LogPriority::Debug,
-            log_vp: ViewportState::new(),
-            log_match_idx: None,
-            log_preset: crate::model::LogPreset::default(),
-            scan_path,
-            scan_state: ScanState::Idle,
-            scan_progress: None,
-            storage_tree: None,
-            storage_cwd: Vec::new(),
-            storage_vp: ViewportState::new(),
-            storage_tab: crate::model::StorageTab::default(),
-            storage_sort: StorageSort::Size,
-            use_apparent: false,
-            stay_on_fs,
-            findings: Vec::new(),
-            finding_vp: ViewportState::new(),
-            diagnostic_deep: false,
-            diagnostic_running: false,
-            diagnostic_report: None,
+            process: ProcessState::new(),
+            service: ServiceState::new(),
+            log: LogState::new(max_logs),
+            storage: StorageState::new(scan_path, stay_on_fs),
+            diagnostic: DiagnosticState::new(),
+            settings: SettingsState::default(),
             persist,
             persist_path,
             screen_before_overlay: None,
@@ -259,17 +191,9 @@ impl AppState {
             terminal_profile: TerminalProfile::Auto,
             performance_profile: PerformanceProfile::Auto,
             wallboard: false,
-            settings_section: 0,
-            settings_selected: 0,
-            onboarding_pending: false,
             activity: std::collections::VecDeque::with_capacity(100),
             viewport_rows: 20,
             config_path: Config::default_path(),
-            process_details: None,
-            process_ppids: Vec::new(),
-            file_preview: None,
-            service_recent_logs: Vec::new(),
-            pending_service_inspect: false,
         }
     }
 
@@ -299,7 +223,6 @@ impl AppState {
         matches!(self.dialog, Some(Dialog::Glossary))
     }
 
-    /// Whether `/` should enter a searchable input (list screens or glossary overlay).
     pub fn search_supported(&self) -> bool {
         self.glossary_open() || self.screen.supports_search()
     }
@@ -321,7 +244,6 @@ impl AppState {
         }
     }
 
-    /// Short title suffix when a filter is active, e.g. `  /nginx`.
     pub fn search_title_suffix(&self) -> String {
         let q = self.current_search();
         if q.is_empty() {
@@ -332,21 +254,26 @@ impl AppState {
     }
 
     pub fn visible_processes(&self) -> Vec<&ProcessInfo> {
-        visible_processes(&self.processes, self.current_search(), self.process_sort)
+        visible_processes(
+            &self.process.items,
+            self.current_search(),
+            self.process.sort,
+        )
     }
 
     pub fn visible_findings(&self) -> Vec<&Finding> {
         let q = self.current_search();
-        self.findings
+        self.diagnostic
+            .findings
             .iter()
             .filter(|f| finding_matches(f, q))
             .collect()
     }
 
     pub fn current_storage_node(&self) -> Option<&StorageNode> {
-        let tree = self.storage_tree.as_ref()?;
+        let tree = self.storage.tree.as_ref()?;
         let mut node = &tree.root;
-        for part in &self.storage_cwd {
+        for part in &self.storage.cwd {
             node = node.find_child(part)?;
         }
         Some(node)
@@ -371,23 +298,23 @@ impl AppState {
     }
 
     pub fn process_selected(&self) -> usize {
-        self.process_vp.selected
+        self.process.vp.selected
     }
 
     pub fn service_selected(&self) -> usize {
-        self.service_vp.selected
+        self.service.vp.selected
     }
 
     pub fn log_selected(&self) -> usize {
-        self.log_vp.selected
+        self.log.vp.selected
     }
 
     pub fn storage_selected(&self) -> usize {
-        self.storage_vp.selected
+        self.storage.vp.selected
     }
 
     pub fn finding_selected(&self) -> usize {
-        self.finding_vp.selected
+        self.diagnostic.vp.selected
     }
 
     pub fn glossary_selected(&self) -> usize {
@@ -430,13 +357,10 @@ impl AppState {
 
     pub fn tick_toasts(&mut self) {
         expire_toast(&mut self.toast);
-        if self.toast.is_none() {
-            // keep status_message as last info until cleared by next toast
-        }
     }
 
-    pub fn theme(&self) -> crate::ui::theme::Theme {
-        crate::ui::theme::Theme::with_profile(self.color, self.terminal_profile)
+    pub fn theme(&self) -> crate::theme::Theme {
+        crate::theme::Theme::with_profile(self.color, self.terminal_profile)
     }
 
     pub fn refresh_subsystem_health_from_metrics(&mut self) {

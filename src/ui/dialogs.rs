@@ -60,6 +60,24 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
             );
             draw_box(frame, area, theme, "Confirm service action", &body);
         }
+        Dialog::ConfirmElevation {
+            unit,
+            action,
+            choice,
+        } => {
+            let body = format!(
+                "Administrator permission is required.\n\nUnit:    {unit}\nAction:  {}\n\nRun once with sudo (leave TUI → sudo -v → return), or Cancel.\n\n{}",
+                action.label(),
+                confirm_buttons_sudo(*choice)
+            );
+            draw_box(
+                frame,
+                area,
+                theme,
+                "Administrator permission is required",
+                &body,
+            );
+        }
         Dialog::ConfirmResetSettings { choice } | Dialog::ConfirmCompleteOnboarding { choice } => {
             let (title, msg) = match dialog {
                 Dialog::ConfirmResetSettings { .. } => (
@@ -127,6 +145,14 @@ fn confirm_buttons(choice: ConfirmChoice) -> String {
     let (yes, cancel) = match choice {
         ConfirmChoice::Yes => ("[ YES ]", "  Cancel  "),
         ConfirmChoice::Cancel => ("  Yes  ", "[ CANCEL ]"),
+    };
+    format!("{cancel}   {yes}\n\n←/→ focus · Enter · y/n")
+}
+
+fn confirm_buttons_sudo(choice: ConfirmChoice) -> String {
+    let (yes, cancel) = match choice {
+        ConfirmChoice::Yes => ("[ RUN ONCE WITH SUDO ]", "  Cancel  "),
+        ConfirmChoice::Cancel => ("  Run once with sudo  ", "[ CANCEL ]"),
     };
     format!("{cancel}   {yes}\n\n←/→ focus · Enter · y/n")
 }

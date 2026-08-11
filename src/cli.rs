@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::doctor::DoctorArgs;
+use crate::profile::{PerformanceProfile, TerminalProfile};
 use crate::setup::{self, ConsoleInstallSpec};
 use crate::support::SupportFormat;
-use crate::ui::theme::{PerformanceProfile, TerminalProfile};
 use crate::{APP_NAME, APP_VERSION};
 
 #[derive(Debug, Clone, Parser)]

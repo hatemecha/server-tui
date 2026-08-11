@@ -113,11 +113,68 @@ impl UnitFileState {
     }
 }
 
+/// Exact systemd `ActiveState` values (never substring-match "active" ⊂ "inactive").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActiveState {
+    Active,
+    Reloading,
+    Inactive,
+    Failed,
+    Activating,
+    Deactivating,
+    Maintenance,
+    #[default]
+    Unknown,
+}
+
+impl ActiveState {
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "active" => Self::Active,
+            "reloading" => Self::Reloading,
+            "inactive" => Self::Inactive,
+            "failed" => Self::Failed,
+            "activating" => Self::Activating,
+            "deactivating" => Self::Deactivating,
+            "maintenance" => Self::Maintenance,
+            // Legacy / uncommon: treat "dead" like inactive for filters/paint.
+            "dead" => Self::Inactive,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Reloading => "reloading",
+            Self::Inactive => "inactive",
+            Self::Failed => "failed",
+            Self::Activating => "activating",
+            Self::Deactivating => "deactivating",
+            Self::Maintenance => "maintenance",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Active)
+    }
+
+    pub fn is_inactive(self) -> bool {
+        matches!(self, Self::Inactive)
+    }
+
+    pub fn is_failed(self) -> bool {
+        matches!(self, Self::Failed)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceInfo {
     pub unit: String,
     pub description: String,
     pub load_state: String,
+    /// Raw ActiveState string from systemd (kept for search/display).
     pub active_state: String,
     pub sub_state: String,
     pub unit_path: String,
@@ -126,17 +183,20 @@ pub struct ServiceInfo {
 }
 
 impl ServiceInfo {
+    pub fn active(&self) -> ActiveState {
+        ActiveState::parse(&self.active_state)
+    }
+
     pub fn is_failed(&self) -> bool {
-        self.active_state.eq_ignore_ascii_case("failed")
+        self.active().is_failed()
     }
 
     pub fn is_active(&self) -> bool {
-        self.active_state.eq_ignore_ascii_case("active")
+        self.active().is_active()
     }
 
     pub fn is_inactive(&self) -> bool {
-        self.active_state.eq_ignore_ascii_case("inactive")
-            || self.active_state.eq_ignore_ascii_case("dead")
+        self.active().is_inactive() || self.active_state.eq_ignore_ascii_case("dead")
     }
 }
 
@@ -238,5 +298,16 @@ mod tests {
             UnitFileState::MaskedRuntime
         );
         assert_eq!(UnitFileState::parse("weird"), UnitFileState::Unknown);
+    }
+
+    #[test]
+    fn active_state_exact_not_substring() {
+        assert_eq!(ActiveState::parse("active"), ActiveState::Active);
+        assert_eq!(ActiveState::parse("inactive"), ActiveState::Inactive);
+        assert_ne!(ActiveState::parse("inactive"), ActiveState::Active);
+        assert!(ActiveState::parse("inactive").is_inactive());
+        assert!(!ActiveState::parse("inactive").is_active());
+        assert!(ActiveState::parse("failed").is_failed());
+        assert!(ActiveState::parse("dead").is_inactive());
     }
 }

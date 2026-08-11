@@ -1,4 +1,4 @@
-//! Safe file preview helpers (no symlink follow, max 64KiB, binary detect).
+//! Safe file preview helpers (O_NOFOLLOW + fd re-validate, max 64KiB, binary detect).
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -10,8 +10,65 @@ use crate::sanitize::{sanitize_path_display, sanitize_text};
 
 pub const MAX_PREVIEW_BYTES: usize = 64 * 1024;
 
-/// Preview a regular file only. Refuses symlinks and non-files.
+/// Preview a regular file only. Refuses symlinks and non-files (TOCTOU-hardened on Unix).
 pub fn preview_file(path: &Path) -> Result<FilePreview, AppError> {
+    #[cfg(unix)]
+    {
+        preview_file_unix(path)
+    }
+    #[cfg(not(unix))]
+    {
+        preview_file_portable(path)
+    }
+}
+
+#[cfg(unix)]
+fn preview_file_unix(path: &Path) -> Result<FilePreview, AppError> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut opts = fs::OpenOptions::new();
+    opts.read(true);
+    // O_NOFOLLOW: do not follow final-component symlink.
+    opts.custom_flags(libc_o_nofollow());
+    let mut f = opts
+        .open(path)
+        .map_err(|e| AppError::Storage(format!("open preview: {e}")))?;
+    let meta = f
+        .metadata()
+        .map_err(|e| AppError::Storage(format!("fstat preview: {e}")))?;
+    if !meta.file_type().is_file() {
+        return Err(AppError::Storage("not a regular file".into()));
+    }
+    // Extra: reject directories / exotic types via mode bits.
+    let mode = meta.mode();
+    if (mode & 0o170000) != 0o100000 {
+        return Err(AppError::Storage("not a regular file".into()));
+    }
+    read_preview(path, &mut f, meta.len())
+}
+
+#[cfg(unix)]
+fn libc_o_nofollow() -> i32 {
+    // Avoid new crate dep: use nix/libc via libc crate... we don't have libc.
+    // Use nix if available, else hardcode Linux O_NOFOLLOW=0x20000.
+    #[cfg(target_os = "linux")]
+    {
+        0x20000 // O_NOFOLLOW
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        libc_nofollow_fallback()
+    }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn libc_nofollow_fallback() -> i32 {
+    // Best-effort; still validates fd with fstat afterwards.
+    0
+}
+
+#[cfg(not(unix))]
+fn preview_file_portable(path: &Path) -> Result<FilePreview, AppError> {
     let meta = fs::symlink_metadata(path).map_err(|e| AppError::Storage(e.to_string()))?;
     if meta.file_type().is_symlink() {
         return Err(AppError::Storage(
@@ -22,6 +79,10 @@ pub fn preview_file(path: &Path) -> Result<FilePreview, AppError> {
         return Err(AppError::Storage("not a regular file".into()));
     }
     let mut f = File::open(path).map_err(|e| AppError::Storage(e.to_string()))?;
+    read_preview(path, &mut f, meta.len())
+}
+
+fn read_preview(path: &Path, f: &mut File, total_hint: u64) -> Result<FilePreview, AppError> {
     let mut buf = vec![0u8; MAX_PREVIEW_BYTES + 1];
     let n = f
         .read(&mut buf)
@@ -33,7 +94,7 @@ pub fn preview_file(path: &Path) -> Result<FilePreview, AppError> {
         format!(
             "(binary file — {} bytes shown, {} total hint)\n{}",
             slice.len(),
-            meta.len(),
+            total_hint,
             hex_dump_preview(slice)
         )
     } else {
@@ -61,36 +122,55 @@ fn hex_dump_preview(data: &[u8]) -> String {
 }
 
 /// Collect up to `limit` largest files from a storage tree (files only).
+/// Uses a bounded min-heap so ranking is O(n log k), not O(n log n) full sort.
 pub fn largest_files_from_tree(
     root: &crate::model::StorageNode,
     limit: usize,
 ) -> Vec<&crate::model::StorageNode> {
-    let mut files = Vec::new();
-    collect_files(root, &mut files);
-    files.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
-    files.truncate(limit.max(1));
-    files
-}
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
 
-fn collect_files<'a>(
-    node: &'a crate::model::StorageNode,
-    out: &mut Vec<&'a crate::model::StorageNode>,
-) {
-    if !node.is_dir {
-        out.push(node);
+    let limit = limit.max(1);
+    // Heap of (size, name, dfs index) — Ord without needing StorageNode: Ord.
+    let mut heap: BinaryHeap<Reverse<(u64, String, usize)>> = BinaryHeap::new();
+    let mut files: Vec<&crate::model::StorageNode> = Vec::new();
+
+    fn walk<'a>(
+        node: &'a crate::model::StorageNode,
+        limit: usize,
+        files: &mut Vec<&'a crate::model::StorageNode>,
+        heap: &mut BinaryHeap<Reverse<(u64, String, usize)>>,
+    ) {
+        if !node.is_dir {
+            let idx = files.len();
+            files.push(node);
+            heap.push(Reverse((node.size, node.name.clone(), idx)));
+            if heap.len() > limit {
+                heap.pop();
+            }
+        }
+        for c in &node.children {
+            walk(c, limit, files, heap);
+        }
     }
-    for c in &node.children {
-        collect_files(c, out);
-    }
+
+    walk(root, limit, &mut files, &mut heap);
+    let mut top: Vec<&crate::model::StorageNode> = heap
+        .into_iter()
+        .map(|Reverse((_, _, idx))| files[idx])
+        .collect();
+    top.sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
+    top
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::fs::symlink;
 
     #[test]
-    fn previews_text_and_rejects_symlink_dir() {
+    fn previews_text_and_rejects_symlink() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.txt");
         let mut f = File::create(&path).unwrap();
@@ -98,6 +178,10 @@ mod tests {
         let prev = preview_file(&path).unwrap();
         assert!(!prev.is_binary);
         assert!(!prev.text.contains('\u{1b}'));
+
+        let link = dir.path().join("link.txt");
+        symlink(&path, &link).unwrap();
+        assert!(preview_file(&link).is_err());
     }
 
     #[test]

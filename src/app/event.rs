@@ -23,6 +23,10 @@ pub enum AppEvent {
     ProcessesUpdated(Vec<ProcessInfo>),
     ServicesUpdated(Vec<ServiceInfo>),
     LogsUpdated(Vec<LogEntry>),
+    /// Refresh replaces the ring buffer.
+    LogsReplaced(Vec<LogEntry>),
+    /// Follow appends (dedupe by cursor/fingerprint when possible).
+    LogsAppended(Vec<LogEntry>),
     StorageProgress(StorageProgress),
     StorageFinished(Result<StorageTree, AppError>),
     DiagnosticsUpdated {
@@ -31,11 +35,19 @@ pub enum AppEvent {
         report: String,
         probes_degraded: Vec<String>,
     },
+    /// SMART CRC observations for single-writer persist merge.
+    SmartCrcObservations(Vec<(String, u64)>),
     ServiceDetails(ServiceInfo),
     ProcessDetails(crate::model::ProcessDetails),
     FilePreviewReady(crate::model::FilePreview),
     PpidMap(Vec<(u32, Option<u32>)>),
     OperationFinished(OperationResult),
+    /// Permission denial that may recover via explicit sudo confirmation.
+    ElevationRequired {
+        unit: String,
+        action: crate::model::ServiceActionKind,
+    },
+    ReportSaved(std::path::PathBuf),
     Error(AppError),
     Quit,
 }

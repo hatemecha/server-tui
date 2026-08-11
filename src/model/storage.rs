@@ -101,6 +101,8 @@ pub struct StorageTree {
     pub dirs: u64,
     pub errors: u64,
     pub excluded: Vec<PathBuf>,
+    /// True when scan stopped early due to max_scan_entries budget.
+    pub truncated: bool,
 }
 
 pub fn default_exclusions() -> Vec<PathBuf> {

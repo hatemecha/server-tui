@@ -368,6 +368,7 @@ impl StorageProvider for DemoStorage {
             dirs: 3,
             errors: 0,
             excluded: default_exclusions(),
+            truncated: false,
         })
     }
 }

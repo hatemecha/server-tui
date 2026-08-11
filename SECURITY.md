@@ -48,7 +48,7 @@ Never signal PID 0, 1, or self. SIGKILL success means the signal was **delivered
 - Actions fail closed with permission errors (systemd/D-Bus policy wording).
 - `--read-only` disables the administrative executor entirely.
 - Running as root amplifies impact; use least privilege.
-- If D-Bus denies a **known-unit** systemctl action, the TUI may offer interactive `sudo -v` then non-interactive `sudo -n systemctl …` with fixed argv (never free-form shell). User can cancel at `sudo -v`.
+- If D-Bus denies a **known-unit** systemctl action, the TUI shows **Administrator permission is required** (default Cancel). Only after Yes: leave TUI → interactive `sudo -v` → re-enter → `sudo -n` + absolute `systemctl` + unit. Never silent elevation.
 
 ## Non-goals / hard bans
 

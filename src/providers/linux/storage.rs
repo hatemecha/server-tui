@@ -66,6 +66,8 @@ fn scan_blocking(
     let errors = AtomicU64::new(0);
     let last_progress = AtomicU64::new(0);
 
+    const MAX_SCAN_ENTRIES: usize = 250_000;
+    let mut truncated = false;
     // Collect flat entries then build tree.
     let mut entries: Vec<(PathBuf, bool, u64, u64, Option<String>)> = Vec::new();
     // (path, is_dir, size, apparent, error)
@@ -136,6 +138,10 @@ fn scan_blocking(
                     bytes.fetch_add(size, Ordering::Relaxed);
                 }
                 entries.push((path.clone(), is_dir, size, apparent, None));
+                if entries.len() >= MAX_SCAN_ENTRIES {
+                    truncated = true;
+                    break;
+                }
 
                 let n = files.load(Ordering::Relaxed) + dirs.load(Ordering::Relaxed);
                 let last = last_progress.load(Ordering::Relaxed);
@@ -175,12 +181,19 @@ fn scan_blocking(
     // Small yield for UI breathing room isn't needed in blocking; return.
     let _ = Duration::from_millis(0);
 
+    let mut error_count = errors.load(Ordering::Relaxed);
+    if truncated {
+        error_count = error_count.saturating_add(1);
+        tracing::warn!("storage scan truncated at {MAX_SCAN_ENTRIES} entries (partial results)");
+    }
+
     Ok(StorageTree {
         root: tree,
         files: files.load(Ordering::Relaxed),
         dirs: dirs.load(Ordering::Relaxed),
-        errors: errors.load(Ordering::Relaxed),
+        errors: error_count,
         excluded: exclusions,
+        truncated,
     })
 }
 

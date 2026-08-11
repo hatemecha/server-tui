@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use crate::model::{ProcessSignal, ServiceActionKind};
+use crate::settings::SettingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -150,7 +151,7 @@ pub enum AppAction {
     SaveSettings,
     CycleTerminalProfile,
     CyclePerformanceProfile,
-    ToggleConfigBool(&'static str),
+    ToggleSetting(SettingId),
     CleanupReportsNow,
     Quit,
     // Internal typed admin intents after confirmation.

@@ -15,13 +15,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Length(5), Constraint::Min(5)])
         .split(area);
 
-    let status = match state.scan_state {
+    let status = match state.storage.scan_state {
         ScanState::Idle => "idle — press r to scan".into(),
         ScanState::Running => {
-            if let Some(p) = &state.scan_progress {
+            if let Some(p) = &state.storage.scan_progress {
                 format!(
                     "scanning {}  files:{} dirs:{} bytes:{} errors:{}  Esc cancel",
-                    p.current.display(),
+                    sanitize_path_display(&p.current),
                     p.files,
                     p.dirs,
                     format_size(p.bytes),
@@ -33,9 +33,14 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
         ScanState::Cancelled => "cancelled".into(),
         ScanState::Finished => {
-            if let Some(t) = &state.storage_tree {
+            if let Some(t) = &state.storage.tree {
+                let trunc = if t.truncated {
+                    "  (truncated — entry budget)"
+                } else {
+                    ""
+                };
                 format!(
-                    "done  files:{} dirs:{} errors:{}",
+                    "done  files:{} dirs:{} errors:{}{trunc}",
                     t.files, t.dirs, t.errors
                 )
             } else {
@@ -44,23 +49,23 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
     };
     let cwd = {
-        let mut p = state.scan_path.display().to_string();
-        for part in &state.storage_cwd {
+        let mut p = sanitize_path_display(&state.storage.scan_path);
+        for part in &state.storage.cwd {
             p.push('/');
-            p.push_str(part);
+            p.push_str(&crate::sanitize::sanitize_cell(part));
         }
         p
     };
     let header = format!(
         "tab:{}  path: {cwd}\nsort:{}  size:{}  stay_fs:{}  {}\nEnter inspect/preview · t cycle tabs · Backspace up",
-        state.storage_tab.label(),
-        state.storage_sort.label(),
-        if state.use_apparent {
+        state.storage.tab.label(),
+        state.storage.sort.label(),
+        if state.storage.use_apparent {
             "apparent"
         } else {
             "disk"
         },
-        if state.stay_on_fs { "on" } else { "off" },
+        if state.storage.stay_on_fs { "on" } else { "off" },
         status
     );
     frame.render_widget(
@@ -74,14 +79,14 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 
     let visible = chunks[1].height.saturating_sub(3) as usize;
-    let mut vp = state.storage_vp;
+    let mut vp = state.storage.vp;
     let border = if state.focus == FocusPane::Content {
         theme.accent()
     } else {
         theme.border()
     };
 
-    match state.storage_tab {
+    match state.storage.tab {
         StorageTab::Mounts => {
             let disks = &state.metrics.disks;
             vp.ensure_visible(disks.len(), visible.max(1));
@@ -136,7 +141,8 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
         StorageTab::LargestFiles => {
             let files = state
-                .storage_tree
+                .storage
+                .tree
                 .as_ref()
                 .map(|t| crate::preview::largest_files_from_tree(&t.root, 50))
                 .unwrap_or_default();
@@ -144,7 +150,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             let header_row = Row::new(vec!["", "SIZE", "PATH"]).style(theme.accent());
             let rows = files.iter().enumerate().map(|(i, f)| {
                 let selected = i == vp.selected;
-                let size = if state.use_apparent {
+                let size = if state.storage.use_apparent {
                     f.apparent_size
                 } else {
                     f.size
@@ -189,7 +195,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             let max_size = children
                 .iter()
                 .map(|c| {
-                    if state.use_apparent {
+                    if state.storage.use_apparent {
                         c.apparent_size
                     } else {
                         c.size
@@ -202,7 +208,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 Row::new(vec!["", "NAME", "TYPE", "SIZE", "BAR"]).style(theme.accent());
             let rows = children.iter().enumerate().map(|(i, c)| {
                 let selected = i == vp.selected;
-                let size = if state.use_apparent {
+                let size = if state.storage.use_apparent {
                     c.apparent_size
                 } else {
                     c.size

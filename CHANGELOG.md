@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-11
+
+### Fixed
+
+- Settings toggles `1`–`5` no longer intercepted by global screen digits (locals resolve before globals)
+- Service status paint: `inactive` is no longer treated as active (exact `ActiveState` enum)
+- Explicit elevation dialog (Cancel default) before any `sudo -v` path; RAII terminal suspension always reenters
+- Log refresh replaces the buffer; follow appends with basic dedupe (`LogsReplaced` / `LogsAppended`)
+- Export I/O moved to `SideEffect::SaveReport` (no reducer filesystem writes)
+- SMART probes no longer write `state.toml` (runtime merges CRC observations)
+- File preview opens with `O_NOFOLLOW` + fd re-validation
+- Report/config/state files created as `0600`, dirs `0700`
+
+### Changed
+
+- App no longer depends on `ui/` for viewport/status/profiles (crate-root modules)
+- Typed `SettingId` replaces `ToggleConfigBool(&'static str)`
+- Config `version` + migrate; removed dead `config_path_override`
+- Config watch channel updates poller intervals without respawn
+- Service details cache TTL + invalidation on list refresh
+- Storage scan entry budget with truncated partial results
+- Process tree cycle/depth guards; Top-K largest files via heap
+- Trusted sudo argv uses absolute `systemctl` path
+- timedatectl uses machine-readable `show --property=NTPSynchronized --value`
+- Release tarballs include LICENSE + README; doctor verify no longer ignores failure
+- Docs: `docs/MAINTAINING.md`, ADRs 0001–0003; English-primary agent notes
+- `AppState` screen fields extracted into substates (`ProcessState`, `ServiceState`, `LogState`, `StorageState`, `DiagnosticState`, `SettingsState`)
+- `src/app/update/` split into keymap / reducer / events / navigation (locals-before-globals keymap remains source of truth)
+- Event loop, pollers, and side-effect runner moved to `src/runtime/` (`main` is CLI bootstrap only)
+- Linux diagnostic probes split under `providers/linux/diagnostics/`; pure rules under `diagnostics/rules/`; `evaluate()` composes rules
+
+### Added
+
+- Keybinding registry helpers + architecture invariant / render matrix tests
+- Architecture tests: recursive `app`↛`ui` import check; diagnostics purity ban-list
+- `RedactionPolicy` for support/export redaction
+
 ## [0.3.0] — 2026-08-07
 
 ### Added

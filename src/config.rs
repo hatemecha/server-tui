@@ -1,7 +1,6 @@
 //! Application configuration loaded from TOML.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +18,9 @@ const MAX_LOG_ENTRIES: usize = 50_000;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Schema version for forward migrations (bump when fields change meaning).
+    #[serde(default = "default_config_version")]
+    pub version: u32,
     pub refresh_ms: u64,
     pub process_refresh_ms: u64,
     pub service_refresh_ms: u64,
@@ -36,9 +38,9 @@ pub struct Config {
     pub max_log_entries: usize,
     pub metric_history_size: usize,
     #[serde(default)]
-    pub terminal_profile: crate::ui::theme::TerminalProfile,
+    pub terminal_profile: crate::profile::TerminalProfile,
     #[serde(default)]
-    pub performance_profile: crate::ui::theme::PerformanceProfile,
+    pub performance_profile: crate::profile::PerformanceProfile,
     #[serde(default)]
     pub onboarding_completed: bool,
     #[serde(default = "default_true")]
@@ -50,11 +52,14 @@ pub struct Config {
     /// Days to keep support reports under XDG_STATE; 0 = never auto-clean.
     #[serde(default = "default_report_days")]
     pub report_retention_days: u64,
-    pub config_path_override: Option<String>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_config_version() -> u32 {
+    1
 }
 
 fn default_report_days() -> u64 {
@@ -64,6 +69,7 @@ fn default_report_days() -> u64 {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: 1,
             refresh_ms: 1000,
             process_refresh_ms: 2000,
             service_refresh_ms: 5000,
@@ -80,14 +86,13 @@ impl Default for Config {
             confirm_service_actions: true,
             max_log_entries: 5000,
             metric_history_size: 60,
-            terminal_profile: crate::ui::theme::TerminalProfile::Auto,
-            performance_profile: crate::ui::theme::PerformanceProfile::Auto,
+            terminal_profile: crate::profile::TerminalProfile::Auto,
+            performance_profile: crate::profile::PerformanceProfile::Auto,
             onboarding_completed: false,
             enable_smart_probes: true,
             diagnostics_light_scan: true,
             wallboard_default: false,
             report_retention_days: 30,
-            config_path_override: None,
         }
     }
 }
@@ -115,8 +120,20 @@ impl Config {
             path: path.clone(),
             message: e.to_string(),
         })?;
+        cfg.migrate();
         cfg.clamp();
         Ok((cfg, path))
+    }
+
+    /// Apply forward-compatible migrations for older config files.
+    pub fn migrate(&mut self) {
+        if self.version == 0 {
+            self.version = 1;
+        }
+        // Future migrations: match self.version { 1 => ..., _ => {} }
+        if self.version < 1 {
+            self.version = 1;
+        }
     }
 
     pub fn clamp(&mut self) {
@@ -140,23 +157,11 @@ impl Config {
         expand_tilde(&self.default_scan_path)
     }
 
-    /// Atomic write: tmp + fsync + rename.
+    /// Atomic write: private tmp + fsync + rename (0600 file / 0700 dir).
     pub fn save_atomic(&self, path: &Path) -> Result<(), AppError> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| AppError::Internal(e.to_string()))?;
-        }
         let body = toml::to_string_pretty(self)
             .map_err(|e| AppError::Internal(format!("config serialize: {e}")))?;
-        let tmp = path.with_extension("toml.tmp");
-        {
-            let mut f = fs::File::create(&tmp).map_err(|e| AppError::Internal(e.to_string()))?;
-            f.write_all(body.as_bytes())
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-            f.sync_all()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-        }
-        fs::rename(&tmp, path).map_err(|e| AppError::Internal(e.to_string()))?;
-        Ok(())
+        crate::fsutil::write_private_atomic(path, body.as_bytes())
     }
 }
 

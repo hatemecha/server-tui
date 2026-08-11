@@ -53,12 +53,14 @@ jobs:
           set -euo pipefail
           BIN=target/${{ matrix.target }}/release/server-tui
           NAME="server-tui-${{ github.ref_name }}-${{ matrix.target }}"
-          mkdir -p dist
-          tar -czf "dist/${NAME}.tar.gz" -C "$(dirname "$BIN")" "$(basename "$BIN")"
+          mkdir -p dist "${NAME}"
+          cp "$BIN" "${NAME}/server-tui"
+          cp LICENSE README.md "${NAME}/"
+          tar -czf "dist/${NAME}.tar.gz" "${NAME}"
           (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.sha256")
           "$BIN" --version
           "$BIN" --help >/dev/null
-          "$BIN" doctor --demo >/dev/null || true
+          "$BIN" doctor --demo >/dev/null
 
       - name: Upload artifact
         if: env.SKIP != '1'

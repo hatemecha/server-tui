@@ -39,7 +39,7 @@ jobs:
         run: cargo build --release
 
       - name: Package
-        run: cargo package --locked --allow-dirty
+        run: cargo package --locked
 
   msrv:
     runs-on: ubuntu-latest

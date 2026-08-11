@@ -7,7 +7,7 @@ pub fn process_menu(state: &AppState) -> Vec<MenuItem> {
     let mut items = vec![
         MenuItem::enabled("Details (Enter)", MenuAction::ProcessInspect),
         MenuItem::enabled(
-            if state.process_follow_pid.is_some() {
+            if state.process.follow_pid.is_some() {
                 "Stop follow PID"
             } else {
                 "Follow selected PID"
@@ -15,7 +15,7 @@ pub fn process_menu(state: &AppState) -> Vec<MenuItem> {
             MenuAction::ProcessFollow,
         ),
         MenuItem::enabled(
-            if state.process_tree_mode {
+            if state.process.tree_mode {
                 "Flat list view"
             } else {
                 "Tree view (on-demand)"

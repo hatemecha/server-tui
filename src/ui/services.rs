@@ -15,14 +15,14 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Min(5), Constraint::Length(7)])
         .split(area);
 
-    let filter = if state.failed_only {
+    let filter = if state.service.failed_only {
         ServiceFilter::Failed
     } else {
-        state.service_filter
+        state.service.filter
     };
-    let filtered = filter_services(&state.services, state.current_search(), filter);
+    let filtered = filter_services(&state.service.items, state.current_search(), filter);
     let visible = chunks[0].height.saturating_sub(3) as usize;
-    let mut vp = state.service_vp;
+    let mut vp = state.service.vp;
     vp.ensure_visible(filtered.len(), visible.max(1));
 
     let header = Row::new(vec![

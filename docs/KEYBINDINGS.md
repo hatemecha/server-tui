@@ -41,7 +41,7 @@
 | `l` | Logs for unit |
 | `f` | Failed-only filter |
 
-Permission-denied D-Bus actions may prompt `sudo -v` then typed `sudo -n systemctl <action> <unit>` (not in `--demo` / `--read-only`).
+Permission-denied D-Bus actions open **Administrator permission is required** (Cancel default). Confirming leaves the TUI for interactive `sudo -v`, then typed `sudo -n` + absolute `systemctl` + unit (not in `--demo` / `--read-only`).
 
 ## Logs
 
@@ -87,7 +87,7 @@ No delete.
 |-----|--------|
 | `j`/`k` | Section |
 | `t` / `p` | Terminal / performance profile |
-| `1`–`5` | Confirm + SMART + light-scan toggles |
+| `1`–`5` | Safety / SMART / light-scan toggles (**override** global screen digits while on Settings) |
 | `w` / `c` | Wallboard / color |
 | `S` / Enter | Atomic save |
 | `o` | Complete onboarding (confirm) |

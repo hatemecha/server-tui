@@ -8,6 +8,61 @@ use crate::error::AppError;
 
 const TRUSTED_DIRS: &[&str] = &["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
+/// Allowlisted binaries under trusted absolute dirs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrustedCommand {
+    Sudo,
+    Systemctl,
+    Timedatectl,
+    Journalctl,
+    Smartctl,
+    Coredumpctl,
+}
+
+impl TrustedCommand {
+    pub fn binary_name(self) -> &'static str {
+        match self {
+            Self::Sudo => "sudo",
+            Self::Systemctl => "systemctl",
+            Self::Timedatectl => "timedatectl",
+            Self::Journalctl => "journalctl",
+            Self::Smartctl => "smartctl",
+            Self::Coredumpctl => "coredumpctl",
+        }
+    }
+
+    pub fn resolve(self) -> Result<PathBuf, AppError> {
+        resolve_trusted(self.binary_name())
+    }
+}
+
+/// Caps for external process execution (timeouts / stdout / kill_on_drop).
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutionPolicy {
+    pub timeout: std::time::Duration,
+    pub max_stdout_bytes: usize,
+    pub kill_on_drop: bool,
+}
+
+impl Default for ExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            timeout: std::time::Duration::from_secs(30),
+            max_stdout_bytes: 2 * 1024 * 1024,
+            kill_on_drop: true,
+        }
+    }
+}
+
+impl ExecutionPolicy {
+    pub fn short() -> Self {
+        Self {
+            timeout: std::time::Duration::from_secs(5),
+            ..Self::default()
+        }
+    }
+}
+
 /// Resolve a binary name to an absolute path under trusted directories only.
 pub fn resolve_trusted(binary: &str) -> Result<PathBuf, AppError> {
     if binary.is_empty()
@@ -84,6 +139,7 @@ fn exit_status(_code: i32) -> std::process::ExitStatus {
 /// Build argv for `systemctl <action> <unit>` under sudo -n (non-interactive).
 pub fn sudo_systemctl_args(action: &str, unit: &str) -> Result<(PathBuf, Vec<String>), AppError> {
     let sudo = resolve_trusted("sudo")?;
+    let systemctl = resolve_trusted("systemctl")?;
     if !crate::providers::linux::systemd::unit_looks_safe(unit) {
         return Err(AppError::Systemd("refusing unsafe unit name".into()));
     }
@@ -93,7 +149,12 @@ pub fn sudo_systemctl_args(action: &str, unit: &str) -> Result<(PathBuf, Vec<Str
     }
     Ok((
         sudo,
-        vec!["-n".into(), "systemctl".into(), action.into(), unit.into()],
+        vec![
+            "-n".into(),
+            systemctl.to_string_lossy().into_owned(),
+            action.into(),
+            unit.into(),
+        ],
     ))
 }
 
@@ -132,10 +193,10 @@ mod tests {
             exit_code: 0,
             ..Default::default()
         };
-        // resolve may fail if sudo missing — build args manually for unit test
         let unit = "ssh.service";
         assert!(crate::providers::linux::systemd::unit_looks_safe(unit));
-        let args = vec!["-n", "systemctl", "restart", unit];
+        let systemctl = "/usr/bin/systemctl";
+        let args = vec!["-n", systemctl, "restart", unit];
         let prog = PathBuf::from("/usr/bin/sudo");
         let _ = fake.run(&prog, &args);
         let calls = fake.calls.lock().unwrap();

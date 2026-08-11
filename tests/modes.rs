@@ -54,7 +54,7 @@ fn confirmations_required_path_opens_dialog() {
         PathBuf::from("/tmp"),
     );
     state.screen = server_tui::app::Screen::Processes;
-    state.processes.push(ProcessInfo {
+    state.process.items.push(ProcessInfo {
         pid: 4821,
         user: "alex".into(),
         name: "test-worker".into(),

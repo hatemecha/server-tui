@@ -92,8 +92,8 @@ trait SystemdUnit {
 
 pub struct LinuxServiceProvider {
     registry: UnitRegistry,
-    /// Optional fragment_path cache filled only by details().
-    details_cache: Mutex<HashMap<String, ServiceInfo>>,
+    /// Optional fragment_path cache filled only by details(); TTL + list refresh invalidate.
+    details_cache: Mutex<HashMap<String, (std::time::Instant, ServiceInfo)>>,
 }
 
 impl LinuxServiceProvider {
@@ -101,6 +101,17 @@ impl LinuxServiceProvider {
         Self {
             registry,
             details_cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn invalidate_details(&self, unit: Option<&str>) {
+        if let Ok(mut cache) = self.details_cache.lock() {
+            match unit {
+                Some(u) => {
+                    cache.remove(u);
+                }
+                None => cache.clear(),
+            }
         }
     }
 
@@ -286,6 +297,8 @@ impl ServiceProvider for LinuxServiceProvider {
 
         services.sort_by(|a, b| a.unit.cmp(&b.unit));
         self.registry.replace_all(registered);
+        // List refresh is a natural invalidation point for detail snapshots.
+        self.invalidate_details(None);
 
         Ok(services)
     }
@@ -294,9 +307,12 @@ impl ServiceProvider for LinuxServiceProvider {
         if !unit_looks_safe(unit) {
             return Err(AppError::Systemd("invalid unit name".into()));
         }
+        const DETAILS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
         if let Ok(cache) = self.details_cache.lock() {
-            if let Some(cached) = cache.get(unit) {
-                return Ok(cached.clone());
+            if let Some((at, cached)) = cache.get(unit) {
+                if at.elapsed() < DETAILS_TTL {
+                    return Ok(cached.clone());
+                }
             }
         }
 
@@ -356,7 +372,7 @@ impl ServiceProvider for LinuxServiceProvider {
         };
 
         if let Ok(mut cache) = self.details_cache.lock() {
-            cache.insert(unit.to_string(), info.clone());
+            cache.insert(unit.to_string(), (std::time::Instant::now(), info.clone()));
         }
         Ok(info)
     }

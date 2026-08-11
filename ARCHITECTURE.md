@@ -1,19 +1,22 @@
 # Architecture
 
-See also [AGENTS.md](AGENTS.md) and [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+See also [AGENTS.md](AGENTS.md), [docs/MAINTAINING.md](docs/MAINTAINING.md), and [docs/adr/](docs/adr/).
 
 ## Event flow
 
 1. Crossterm `EventStream` + provider pollers enqueue `AppEvent` on an `mpsc` channel.
 2. `apply_event` / `apply_action` mutate `AppState` and return `SideEffect`s.
-3. `main` spawns tracked tasks for side effects (refresh, scan, follow, admin ops, diagnostics).
+3. Runtime (`src/runtime/`: `app_loop`, `effects`, `privilege`) spawns tracked tasks for side effects (refresh, scan, follow, admin ops, diagnostics, report save). `main` only parses CLI → bootstraps → `run_loop` → exit.
 4. UI redraws on each loop iteration after event handling.
+5. Pollers subscribe to a `watch::Receiver<Config>` so refresh intervals follow Settings without duplicate tasks.
 
 ## State
 
-`AppState` owns screen, focus, **per-screen** `SearchQueries`, selection keys (PID / unit name / finding), metric history, log buffer, storage tree, dialogs (confirm with `ConfirmChoice`, help, glossary, report), health status, findings, and XDG persist state.
+`AppState` shell owns navigation/runtime overlays plus coherent screen substates (`ProcessState`, `ServiceState`, `LogState`, `StorageState`, `DiagnosticState`, `SettingsState` in `src/app/substates.rs`), **per-screen** `SearchQueries`, dialogs (confirm with `ConfirmChoice` default Cancel, elevation confirm, help, glossary, report), metric history, and XDG persist state.
 
-Selection is preserved across refreshes when the selected PID/unit still exists. Process navigation always uses `visible_processes` (filter then sort once).
+Update path is split under `src/app/update/` (`keymap`, `reducer`, `events`, `navigation`, `side_effect`). Keymap resolves screen-locals before globals so Settings digits are not stomped.
+
+Viewport / toast / terminal+performance profiles live outside `ui/` (`src/viewport.rs`, `src/status.rs`, `src/profile.rs`) so `app` does not depend on `ui`.
 
 ## Providers
 
@@ -21,50 +24,32 @@ Selection is preserved across refreshes when the selected PID/unit still exists.
 |-------|-------|------|
 | `MetricsProvider` | sysinfo with independent subsystem TTL caches | Synthetic oscillating metrics |
 | `ProcessProvider` | sysinfo processes | Fixed sample set |
-| `ServiceProvider` | zbus ListUnits + ListUnitFiles; `details()` on demand | Fake units + UnitFileState |
+| `ServiceProvider` | zbus ListUnits + ListUnitFiles; details cache with TTL | Fake units + UnitFileState |
 | `LogProvider` | `journalctl --output=json` | Synthetic lines |
-| `StorageProvider` | jwalk + tree aggregate | Fake tree with progress |
-| `DiagnosticProbeProvider` | journalctl/coredumpctl/timedatectl + FS probes | Datasets A–H |
+| `StorageProvider` | jwalk + tree aggregate (entry budget) | Fake tree with progress |
+| `DiagnosticProbeProvider` | `providers/linux/diagnostics/*` (journal, boot, pstore, coredump, pressure, thermal, clock, config_changes, smart) | Datasets A–H |
 | `AdministrativeExecutor` | nix signals + systemd D-Bus + unit registry | Simulated success/errors |
 
 Demo mode uses **only** `DemoProviders` — never mixed with Linux providers.
+
+**Persistence:** providers must not write `state.toml`. Observations (e.g. SMART CRC) flow to the runtime, which is the single writer.
 
 ## Diagnostics pipeline
 
 ```
 DiagnosticProbeProvider.probe() → DiagnosticSnapshot
         ↓
-DiagnosticEvaluator (pure: no FS/D-Bus/Command/Tokio)
+runtime injects prior CRC / metadata
+        ↓
+evaluate() composes pure rules in diagnostics/rules/*
         ↓
 Vec<Finding> + HealthStatus
 ```
 
-Snapshot may also be assembled from in-memory app lists for failed services when probes run.
-
-## Async tasks
-
-- Metrics / processes / services: periodic intervals from config (metrics respect disk/temp/memory TTLs).
-- Storage: `spawn_blocking` walker + cancel token + progress channel.
-- Journal follow: child `journalctl --follow` with `kill_on_drop` and explicit kill on cancel.
-- Diagnostics / admin: one-shot tracked tasks.
-- Shutdown: cancel tokens → `TaskTracker::wait` (2s) → best-effort abort via runtime drop; terminal restore via `TerminalGuard`.
-
-## Rendering
-
-Ratatui frames: shell (header with health / nav / responsive footer) → screen panel → optional dialog/glossary overlay.
-
-Narrow terminals (<100 cols) use horizontal tabs. Footer hints compact below ~80 cols. Tiny terminals show a non-panicking warning.
-
 ## Permissions
 
-Permission failures become `AppError::Permission` with systemd/D-Bus policy wording (Polkit mentioned only with evidence). Observation continues.
-
-Optional **typed** elevation for known units: leave TUI → interactive `sudo -v` → re-enter → `sudo -n systemctl <action> <unit>` via trusted argv only. Disabled in `--demo` and `--read-only`.
-
-## Inspectors & exports
-
-On Enter (or ActionMenu), list screens open on-demand inspectors (process `/proc` details, service properties + recent logs, log ±5 context, storage mount/file preview). Export writes redacted reports under the XDG reports directory.
+Permission failures that look like D-Bus access denial open **ConfirmElevation** (“Administrator permission is required”, default Cancel). Only on Yes: leave TUI → interactive `sudo -v` → re-enter (RAII `TerminalSuspension`) → `sudo -n` + absolute `systemctl` + unit. Disabled in `--demo` and `--read-only`.
 
 ## Viewport
 
-Each list screen owns a `ViewportState`; selection is clamped so it never leaves the visible window (see `src/ui/viewport.rs`).
+Each list screen owns a `ViewportState`; `viewport_rows` tracks content height from terminal size (PageUp/Down use real pages).

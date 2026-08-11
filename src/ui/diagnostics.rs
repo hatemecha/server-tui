@@ -26,7 +26,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         state.subsystem_health.systemd.label(),
         state.subsystem_health.journal.label(),
         state.subsystem_health.diagnostics.label(),
-        if state.diagnostic_running {
+        if state.diagnostic.running {
             "   (running…)"
         } else {
             ""
@@ -44,7 +44,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     let filtered: Vec<&crate::model::Finding> = state.visible_findings();
     let visible = chunks[1].height.saturating_sub(3) as usize;
-    let mut vp = state.finding_vp;
+    let mut vp = state.diagnostic.vp;
     vp.ensure_visible(filtered.len(), visible.max(1));
 
     let header = Row::new(vec!["", "SEV", "ID", "TITLE"]).style(theme.accent());

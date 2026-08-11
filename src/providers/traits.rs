@@ -81,9 +81,19 @@ pub trait AdministrativeExecutor: Send + Sync {
     ) -> Result<(), AppError>;
     async fn service_action(&self, unit: &str, action: ServiceActionKind) -> Result<(), AppError>;
     fn read_only(&self) -> bool;
-    /// True when the last failure was a D-Bus permission denial that may recover via sudo.
+    /// True when failure is a D-Bus access denial that may recover via sudo.
     fn permission_may_sudo(&self, err: &AppError) -> bool {
-        matches!(err, AppError::Permission(_))
+        match err {
+            AppError::Permission(msg) => {
+                let m = msg.to_ascii_lowercase();
+                m.contains("access denied")
+                    || m.contains("permission denied")
+                    || m.contains("interactive authentication required")
+                    || m.contains("not allowed")
+                    || m.contains("org.freedesktop.dbus.error.accessdenied")
+            }
+            _ => false,
+        }
     }
 }
 

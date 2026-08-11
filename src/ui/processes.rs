@@ -16,12 +16,12 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     let filtered = state.visible_processes();
     let visible = chunks[0].height.saturating_sub(3) as usize;
-    let mut vp = state.process_vp;
+    let mut vp = state.process.vp;
 
-    let tree_rows = if state.process_tree_mode && !state.process_ppids.is_empty() {
+    let tree_rows = if state.process.tree_mode && !state.process.ppids.is_empty() {
         Some(crate::model::build_process_tree(
-            &state.processes,
-            &state.process_ppids,
+            &state.process.items,
+            &state.process.ppids,
         ))
     } else {
         None
@@ -33,10 +33,11 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     vp.ensure_visible(row_count, visible.max(1));
 
     let follow = state
-        .process_follow_pid
+        .process
+        .follow_pid
         .map(|p| format!(" follow:{p}"))
         .unwrap_or_default();
-    let tree = if state.process_tree_mode { " tree" } else { "" };
+    let tree = if state.process.tree_mode { " tree" } else { "" };
 
     let header =
         Row::new(vec!["", "PID", "USER", "CPU%", "MEM%", "STATE", "COMMAND"]).style(theme.accent());
@@ -45,7 +46,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .enumerate()
             .map(|(i, (pid, name, depth))| {
                 let selected = i == vp.selected;
-                let info = state.processes.iter().find(|p| p.pid == *pid);
+                let info = state.process.items.iter().find(|p| p.pid == *pid);
                 let indent = "  ".repeat(*depth);
                 let row = Row::new(vec![
                     marker_for(selected).to_string(),
@@ -70,7 +71,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let cmd = if state.show_full_cmd {
+                let cmd = if state.process.show_full_cmd {
                     p.cmd.as_str()
                 } else {
                     p.name.as_str()
@@ -105,7 +106,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         vp.position_label(row_count),
         follow,
         tree,
-        state.process_sort.label(),
+        state.process.sort.label(),
         state.search_title_suffix()
     );
     let table = Table::new(
@@ -144,10 +145,10 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         );
     }
 
-    let detail = if state.process_tree_mode && !state.process_ppids.is_empty() {
-        let tree = crate::model::build_process_tree(&state.processes, &state.process_ppids);
+    let detail = if state.process.tree_mode && !state.process.ppids.is_empty() {
+        let tree = crate::model::build_process_tree(&state.process.items, &state.process.ppids);
         if let Some((pid, name, _)) = tree.get(vp.selected) {
-            if let Some(p) = state.processes.iter().find(|p| p.pid == *pid) {
+            if let Some(p) = state.process.items.iter().find(|p| p.pid == *pid) {
                 format!(
                     "PID {}  user {}  state {}\nCPU {:.1}%  MEM {}% ({})\nruntime {}\ncmd: {}",
                     p.pid,

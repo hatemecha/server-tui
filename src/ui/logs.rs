@@ -14,13 +14,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .constraints([Constraint::Length(3), Constraint::Min(5)])
         .split(area);
 
-    let follow = if state.log_follow { "ON" } else { "OFF" };
-    let unit = state.log_unit.as_deref().unwrap_or("(system)");
+    let follow = if state.log.follow { "ON" } else { "OFF" };
+    let unit = state.log.unit.as_deref().unwrap_or("(system)");
     let header = format!(
         "preset:{}  unit:{unit}  follow:{follow}  priority<={}  wrap:{}  [ cycle preset",
-        state.log_preset.label(),
-        state.log_min_priority.label(),
-        if state.log_wrap { "on" } else { "off" }
+        state.log.preset.label(),
+        state.log.min_priority.label(),
+        if state.log.wrap { "on" } else { "off" }
     );
     frame.render_widget(
         Paragraph::new(header).block(
@@ -32,14 +32,14 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         chunks[0],
     );
 
-    let filtered = state.logs.filtered_preset(
+    let filtered = state.log.buffer.filtered_preset(
         state.current_search(),
-        state.log_min_priority,
-        state.log_preset,
-        state.log_unit.as_deref(),
+        state.log.min_priority,
+        state.log.preset,
+        state.log.unit.as_deref(),
     );
     let visible = chunks[1].height.saturating_sub(2) as usize;
-    let mut vp = state.log_vp;
+    let mut vp = state.log.vp;
     vp.ensure_visible(filtered.len(), visible.max(1));
 
     let items: Vec<ListItem> = filtered
@@ -48,7 +48,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .map(|(i, e)| {
             let selected = i == vp.selected;
             let pid = e.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
-            let msg = if state.log_wrap {
+            let msg = if state.log.wrap {
                 e.message.clone()
             } else {
                 truncate_width(&e.message, 120)

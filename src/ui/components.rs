@@ -198,10 +198,24 @@ pub fn footer_hints(state: &AppState) -> String {
             });
         }
         crate::app::Screen::Settings => {
-            hints.push(KeyHint {
-                key: "j/k",
-                action: "section",
-            });
+            hints.extend([
+                KeyHint {
+                    key: "1..5",
+                    action: "toggles",
+                },
+                KeyHint {
+                    key: "t/p",
+                    action: "profiles",
+                },
+                KeyHint {
+                    key: "S",
+                    action: "save",
+                },
+                KeyHint {
+                    key: "d",
+                    action: "reset",
+                },
+            ]);
         }
     }
 

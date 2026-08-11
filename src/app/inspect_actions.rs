@@ -5,15 +5,15 @@ use crate::app::menus::{finding_menu, log_menu, process_menu, service_menu};
 use crate::app::state::{AppState, Dialog};
 use crate::app::update::SideEffect;
 use crate::model::{filter_services, ExportFormat, MenuAction, ServiceFilter};
-use crate::support::{redact_cmd, save_report, SupportFormat};
-use crate::ui::status::ToastKind;
+use crate::status::ToastKind;
+use crate::support::{redact_cmd, SupportFormat};
 
 fn visible_logs(state: &AppState) -> Vec<&crate::model::LogEntry> {
-    state.logs.filtered_preset(
+    state.log.buffer.filtered_preset(
         state.current_search(),
-        state.log_min_priority,
-        state.log_preset,
-        state.log_unit.as_deref(),
+        state.log.min_priority,
+        state.log.preset,
+        state.log.unit.as_deref(),
     )
 }
 
@@ -27,21 +27,21 @@ pub fn apply_inspect_action(state: &mut AppState, action: &AppAction) -> Option<
         AppAction::ExportContext => Some(do_export(state)),
         AppAction::ActivateMenu | AppAction::MenuSelect => Some(activate_menu(state)),
         AppAction::ToggleProcessFollow => {
-            if let Some(pid) = state.process_selected_pid {
-                if state.process_follow_pid == Some(pid) {
-                    state.process_follow_pid = None;
+            if let Some(pid) = state.process.selected_pid {
+                if state.process.follow_pid == Some(pid) {
+                    state.process.follow_pid = None;
                     state.set_status("follow PID off");
                 } else {
-                    state.process_follow_pid = Some(pid);
+                    state.process.follow_pid = Some(pid);
                     state.set_success(format!("following PID {pid}"));
                 }
             }
             Some(Vec::new())
         }
         AppAction::ToggleProcessTree => {
-            state.process_tree_mode = !state.process_tree_mode;
+            state.process.tree_mode = !state.process.tree_mode;
             let mut effects = Vec::new();
-            if state.process_tree_mode {
+            if state.process.tree_mode {
                 effects.push(SideEffect::FetchPpidMap);
                 state.set_status("tree view on (fetching parents)");
             } else {
@@ -61,15 +61,18 @@ pub fn apply_inspect_action(state: &mut AppState, action: &AppAction) -> Option<
             state.config.wallboard_default = state.wallboard;
             match state.config.save_atomic(&state.config_path) {
                 Ok(()) => {
-                    state.onboarding_pending = false;
-                    state.set_success(format!("settings saved → {}", state.config_path.display()));
+                    state.settings.onboarding_pending = false;
+                    state.set_success(format!(
+                        "settings saved → {}",
+                        crate::sanitize::sanitize_path_display(&state.config_path)
+                    ));
                 }
                 Err(e) => state.set_error(e),
             }
-            Some(Vec::new())
+            Some(vec![SideEffect::PublishConfig])
         }
         AppAction::CycleTerminalProfile => {
-            state.terminal_profile = next_terminal(state.terminal_profile);
+            state.terminal_profile = state.terminal_profile.next();
             state.config.terminal_profile = state.terminal_profile;
             state.set_status(format!(
                 "terminal_profile: {}",
@@ -78,39 +81,43 @@ pub fn apply_inspect_action(state: &mut AppState, action: &AppAction) -> Option<
             Some(Vec::new())
         }
         AppAction::CyclePerformanceProfile => {
-            state.performance_profile = next_perf(state.performance_profile);
+            state.performance_profile = state.performance_profile.next();
             state.config.performance_profile = state.performance_profile;
             apply_performance(state);
             state.set_status(format!(
                 "performance_profile: {}",
                 state.performance_profile.label()
             ));
-            Some(Vec::new())
+            Some(vec![SideEffect::PublishConfig])
         }
-        AppAction::ToggleConfigBool(key) => {
-            match *key {
-                "confirm_sigterm" => state.config.confirm_sigterm = !state.config.confirm_sigterm,
-                "confirm_sigkill" => state.config.confirm_sigkill = !state.config.confirm_sigkill,
-                "confirm_service_actions" => {
+        AppAction::ToggleSetting(id) => {
+            use crate::settings::SettingId;
+            match id {
+                SettingId::ConfirmSigterm => {
+                    state.config.confirm_sigterm = !state.config.confirm_sigterm
+                }
+                SettingId::ConfirmSigkill => {
+                    state.config.confirm_sigkill = !state.config.confirm_sigkill
+                }
+                SettingId::ConfirmServiceActions => {
                     state.config.confirm_service_actions = !state.config.confirm_service_actions
                 }
-                "enable_smart_probes" => {
+                SettingId::EnableSmartProbes => {
                     state.config.enable_smart_probes = !state.config.enable_smart_probes
                 }
-                "diagnostics_light_scan" => {
+                SettingId::DiagnosticsLightScan => {
                     state.config.diagnostics_light_scan = !state.config.diagnostics_light_scan
                 }
-                "wallboard" => {
+                SettingId::Wallboard => {
                     state.wallboard = !state.wallboard;
                     state.config.wallboard_default = state.wallboard;
                 }
-                "color" => {
+                SettingId::Color => {
                     state.color = !state.color;
                     state.config.color = state.color;
                 }
-                _ => state.set_warning(format!("unknown setting {key}")),
             }
-            state.set_status(format!("toggled {key} (Save with S)"));
+            state.set_status(format!("toggled {} (Save with S)", id.label()));
             Some(Vec::new())
         }
         AppAction::ResetSettings => {
@@ -132,32 +139,11 @@ fn apply_performance(state: &mut AppState) {
         .history_size(state.config.metric_history_size);
 }
 
-fn next_terminal(p: crate::ui::theme::TerminalProfile) -> crate::ui::theme::TerminalProfile {
-    use crate::ui::theme::TerminalProfile::*;
-    match p {
-        Auto => Modern,
-        Modern => Tty16,
-        Tty16 => HighContrast,
-        HighContrast => Monochrome,
-        Monochrome => Auto,
-    }
-}
-
-fn next_perf(p: crate::ui::theme::PerformanceProfile) -> crate::ui::theme::PerformanceProfile {
-    use crate::ui::theme::PerformanceProfile::*;
-    match p {
-        Auto => LowResource,
-        LowResource => Balanced,
-        Balanced => Responsive,
-        Responsive => Auto,
-    }
-}
-
 fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
     let mut effects = Vec::new();
     match state.screen {
         Screen::Processes => {
-            if let Some(pid) = state.process_selected_pid {
+            if let Some(pid) = state.process.selected_pid {
                 effects.push(SideEffect::FetchProcessDetails { pid });
                 state.set_toast(
                     ToastKind::Progress,
@@ -166,8 +152,8 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
             }
         }
         Screen::Services => {
-            if let Some(unit) = state.service_selected_unit.clone() {
-                state.pending_service_inspect = true;
+            if let Some(unit) = state.service.selected_unit.clone() {
+                state.service.pending_inspect = true;
                 effects.push(SideEffect::FetchServiceDetails { unit: unit.clone() });
                 effects.push(SideEffect::RefreshLogs { unit: Some(unit) });
                 state.set_toast(ToastKind::Progress, "loading service details");
@@ -177,9 +163,9 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
             let filtered = visible_logs(state);
             if let Some(e) = filtered.get(state.log_selected()).copied() {
                 // Use full buffer indices when possible.
-                let all: Vec<_> = state.logs.iter().collect();
+                let all: Vec<_> = state.log.buffer.iter().collect();
                 let idx = all.iter().position(|x| std::ptr::eq(*x, e)).unwrap_or(0);
-                if let Some((before, focus, after)) = state.logs.context_around(idx, 5, 5) {
+                if let Some((before, focus, after)) = state.log.buffer.context_around(idx, 5, 5) {
                     let ctx = crate::model::LogInspectContext {
                         index: idx,
                         before,
@@ -193,7 +179,7 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
                 }
             }
         }
-        Screen::Storage => match state.storage_tab {
+        Screen::Storage => match state.storage.tab {
             crate::model::StorageTab::DirectoryUsage => {
                 if let Some(node) = state
                     .visible_storage_children()
@@ -221,7 +207,7 @@ fn do_inspect(state: &mut AppState) -> Vec<SideEffect> {
                 }
             }
             crate::model::StorageTab::LargestFiles => {
-                if let Some(tree) = state.storage_tree.as_ref() {
+                if let Some(tree) = state.storage.tree.as_ref() {
                     let files = crate::preview::largest_files_from_tree(&tree.root, 50);
                     if let Some(node) = files.get(state.storage_selected()).copied() {
                         effects.push(SideEffect::PreviewFile {
@@ -283,12 +269,12 @@ fn open_menu(state: &mut AppState) {
     let (title, items) = match state.screen {
         Screen::Processes => ("Process actions".into(), process_menu(state)),
         Screen::Services => {
-            let filter = if state.failed_only {
+            let filter = if state.service.failed_only {
                 ServiceFilter::Failed
             } else {
-                state.service_filter
+                state.service.filter
             };
-            let filtered = filter_services(&state.services, state.current_search(), filter);
+            let filtered = filter_services(&state.service.items, state.current_search(), filter);
             let (active, ufs) = filtered
                 .get(state.service_selected())
                 .map(|s| (s.active_state.as_str(), s.unit_file_state))
@@ -339,8 +325,8 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
             apply_inspect_action(state, &AppAction::ToggleProcessTree).unwrap_or_default()
         }
         MenuAction::ProcessLogs => {
-            if let Some(unit) = state.process_details.as_ref().and_then(|d| d.unit.clone()) {
-                state.log_unit = Some(unit.clone());
+            if let Some(unit) = state.process.details.as_ref().and_then(|d| d.unit.clone()) {
+                state.log.unit = Some(unit.clone());
                 state.screen = Screen::Logs;
                 vec![SideEffect::RefreshLogs { unit: Some(unit) }]
             } else {
@@ -349,7 +335,7 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
             }
         }
         MenuAction::ProcessService => {
-            if let Some(unit) = state.process_details.as_ref().and_then(|d| d.unit.clone()) {
+            if let Some(unit) = state.process.details.as_ref().and_then(|d| d.unit.clone()) {
                 state.screen = Screen::Services;
                 if let Some(slot) = state.search.get_mut(Screen::Services) {
                     *slot = unit;
@@ -364,8 +350,8 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
         MenuAction::ProcessExport => export_process(state),
         MenuAction::ServiceExport => export_service(state),
         MenuAction::ServiceLogs => {
-            if let Some(unit) = state.service_selected_unit.clone() {
-                state.log_unit = Some(unit.clone());
+            if let Some(unit) = state.service.selected_unit.clone() {
+                state.log.unit = Some(unit.clone());
                 state.screen = Screen::Logs;
                 vec![SideEffect::RefreshLogs { unit: Some(unit) }]
             } else {
@@ -376,7 +362,7 @@ fn activate_menu(state: &mut AppState) -> Vec<SideEffect> {
             // Re-use confirmation path via synthetic - call maybe via dialog open is in update
             // Signal by setting a temporary approach: open confirm through existing helpers not accessible.
             // Use ExecuteService after confirm elsewhere — open ConfirmService here.
-            if let Some(unit) = state.service_selected_unit.clone() {
+            if let Some(unit) = state.service.selected_unit.clone() {
                 if state.read_only {
                     state.set_status("READ ONLY");
                     return Vec::new();
@@ -440,7 +426,7 @@ fn export_process(state: &mut AppState) -> Vec<SideEffect> {
     else {
         return Vec::new();
     };
-    let details = state.process_details.as_ref();
+    let details = state.process.details.as_ref();
     let body = format!(
         "# process export (redacted)\npid: {}\nuser: {}\nname: {}\ncmd: {}\ncpu: {:.1}\nmem: {}\nstate: {}\n{}\n",
         p.pid,
@@ -452,20 +438,19 @@ fn export_process(state: &mut AppState) -> Vec<SideEffect> {
         p.state,
         details.map(|d| d.format_body()).unwrap_or_default()
     );
-    match save_report(&body, SupportFormat::Markdown, None) {
-        Ok(path) => state.set_success(format!("exported {}", path.display())),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: SupportFormat::Markdown,
+    }]
 }
 
 fn export_service(state: &mut AppState) -> Vec<SideEffect> {
-    let filter = if state.failed_only {
+    let filter = if state.service.failed_only {
         ServiceFilter::Failed
     } else {
-        state.service_filter
+        state.service.filter
     };
-    let filtered = filter_services(&state.services, state.current_search(), filter);
+    let filtered = filter_services(&state.service.items, state.current_search(), filter);
     let Some(s) = filtered.get(state.service_selected()) else {
         return Vec::new();
     };
@@ -477,7 +462,7 @@ fn export_service(state: &mut AppState) -> Vec<SideEffect> {
         s.unit_file_state.label(),
         s.fragment_path
     );
-    for e in state.service_recent_logs.iter().take(10) {
+    for e in state.service.recent_logs.iter().take(10) {
         body.push_str(&format!(
             "- {} {} {}\n",
             e.timestamp,
@@ -485,11 +470,10 @@ fn export_service(state: &mut AppState) -> Vec<SideEffect> {
             e.message
         ));
     }
-    match save_report(&body, SupportFormat::Markdown, None) {
-        Ok(path) => state.set_success(format!("exported {}", path.display())),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: SupportFormat::Markdown,
+    }]
 }
 
 fn support_fmt(fmt: ExportFormat) -> SupportFormat {
@@ -531,11 +515,10 @@ fn export_logs_selected(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffe
             e.message
         ),
     };
-    match save_report(&body, support_fmt(fmt), None) {
-        Ok(path) => state.set_success(format!("exported {}", path.display())),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: support_fmt(fmt),
+    }]
 }
 
 fn export_logs_visible(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffect> {
@@ -583,15 +566,10 @@ fn export_logs_visible(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffec
             body
         }
     };
-    match save_report(&body, support_fmt(fmt), None) {
-        Ok(path) => state.set_success(format!(
-            "exported {} lines → {}",
-            filtered.len(),
-            path.display()
-        )),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: support_fmt(fmt),
+    }]
 }
 
 fn export_logs_context(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffect> {
@@ -599,9 +577,9 @@ fn export_logs_context(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffec
     let Some(e) = filtered.get(state.log_selected()).copied() else {
         return Vec::new();
     };
-    let all: Vec<_> = state.logs.iter().collect();
+    let all: Vec<_> = state.log.buffer.iter().collect();
     let idx = all.iter().position(|x| std::ptr::eq(*x, e)).unwrap_or(0);
-    let Some((before, focus, after)) = state.logs.context_around(idx, 5, 5) else {
+    let Some((before, focus, after)) = state.log.buffer.context_around(idx, 5, 5) else {
         return Vec::new();
     };
     let ctx = crate::model::LogInspectContext {
@@ -620,11 +598,10 @@ fn export_logs_context(state: &mut AppState, fmt: ExportFormat) -> Vec<SideEffec
         .unwrap_or_else(|_| "{}".into()),
         _ => format!("# log context\n\n{}", ctx.format_body()),
     };
-    match save_report(&body, support_fmt(fmt), None) {
-        Ok(path) => state.set_success(format!("exported context {}", path.display())),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: support_fmt(fmt),
+    }]
 }
 
 fn export_finding(state: &mut AppState) -> Vec<SideEffect> {
@@ -643,9 +620,8 @@ fn export_finding(state: &mut AppState) -> Vec<SideEffect> {
         f.evidence.summary,
         f.evidence.details.join("\n")
     );
-    match save_report(&body, SupportFormat::Markdown, None) {
-        Ok(path) => state.set_success(format!("exported {}", path.display())),
-        Err(e) => state.set_error(e),
-    }
-    Vec::new()
+    vec![SideEffect::SaveReport {
+        body,
+        format: SupportFormat::Markdown,
+    }]
 }

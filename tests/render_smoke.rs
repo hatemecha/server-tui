@@ -53,7 +53,7 @@ fn renders_diagnostics_with_finding() {
     let mut state = state_80x24();
     state.screen = Screen::Diagnostics;
     state.health_status = HealthStatus::Warning;
-    state.findings.push(Finding {
+    state.diagnostic.findings.push(Finding {
         id: "demo.x".into(),
         title: "Demo finding".into(),
         summary: "summary".into(),
@@ -70,6 +70,51 @@ fn renders_diagnostics_with_finding() {
     });
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal.draw(|f| ui::draw(f, &state)).expect("draw");
+}
+
+#[test]
+fn renders_all_screens_matrix() {
+    let screens = [
+        Screen::Dashboard,
+        Screen::Processes,
+        Screen::Services,
+        Screen::Logs,
+        Screen::Storage,
+        Screen::Diagnostics,
+        Screen::Settings,
+    ];
+    let sizes = [(40, 8), (80, 24), (120, 40)];
+    for (w, h) in sizes {
+        for screen in screens {
+            let mut state = state_80x24();
+            state.screen = screen;
+            state.width = w;
+            state.height = h;
+            state.viewport_rows = server_tui::viewport::content_rows_from_terminal(h);
+            let backend = TestBackend::new(w, h);
+            let mut terminal = Terminal::new(backend).expect("terminal");
+            terminal.draw(|f| ui::draw(f, &state)).expect("draw");
+        }
+    }
+}
+
+#[test]
+fn renders_elevation_and_inspector_overlays() {
+    let mut state = state_80x24();
+    state.dialog = Some(Dialog::ConfirmElevation {
+        unit: "ssh.service".into(),
+        action: server_tui::model::ServiceActionKind::Restart,
+        choice: server_tui::app::action::ConfirmChoice::Cancel,
+    });
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal.draw(|f| ui::draw(f, &state)).expect("draw");
+
+    state.dialog = Some(Dialog::Inspector {
+        title: "demo".into(),
+        body: "line1\nline2".into(),
+    });
     terminal.draw(|f| ui::draw(f, &state)).expect("draw");
 }
 

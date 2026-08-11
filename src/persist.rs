@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -50,21 +49,9 @@ impl AppPersistState {
     }
 
     pub fn save_atomic(&self, path: &Path) -> Result<(), AppError> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| AppError::Internal(e.to_string()))?;
-        }
         let body = toml::to_string_pretty(self)
             .map_err(|e| AppError::Internal(format!("state serialize: {e}")))?;
-        let tmp = path.with_extension("toml.tmp");
-        {
-            let mut f = fs::File::create(&tmp).map_err(|e| AppError::Internal(e.to_string()))?;
-            f.write_all(body.as_bytes())
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-            f.sync_all()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-        }
-        fs::rename(&tmp, path).map_err(|e| AppError::Internal(e.to_string()))?;
-        Ok(())
+        crate::fsutil::write_private_atomic(path, body.as_bytes())
     }
 
     pub fn touch_diagnostic_now(&mut self) {

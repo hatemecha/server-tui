@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use crate::app::action::Screen;
 use crate::app::state::AppState;
 use crate::sanitize::truncate_width;
-use crate::ui::theme::Theme;
+use crate::theme::Theme;
 use crate::APP_NAME;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

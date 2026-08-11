@@ -38,7 +38,7 @@ fn quit_action_sets_flag() {
 fn selection_moves_in_process_list() {
     let mut s = state();
     s.screen = Screen::Processes;
-    s.processes = vec![
+    s.process.items = vec![
         ProcessInfo {
             pid: 1,
             user: "a".into(),
@@ -64,8 +64,8 @@ fn selection_moves_in_process_list() {
             start_time: 2,
         },
     ];
-    s.process_sort = server_tui::model::ProcessSort::Pid;
+    s.process.sort = server_tui::model::ProcessSort::Pid;
     let _ = apply_action(&mut s, AppAction::MoveDown);
     assert_eq!(s.process_selected(), 1);
-    assert_eq!(s.process_selected_pid, Some(2));
+    assert_eq!(s.process.selected_pid, Some(2));
 }

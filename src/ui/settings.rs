@@ -7,16 +7,7 @@ use crate::app::state::AppState;
 use crate::setup::{self, ConsoleInstallSpec};
 use crate::ui::selection::{marker_for, selected_row_style};
 
-pub const SECTIONS: &[&str] = &[
-    "General",
-    "Appearance",
-    "Performance",
-    "Dashboard",
-    "Logs",
-    "Diagnostics",
-    "Safety",
-    "Startup",
-];
+pub use crate::settings::SETTINGS_SECTIONS as SECTIONS;
 
 pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let theme = state.theme();
@@ -29,7 +20,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let selected = i == state.settings_section;
+            let selected = i == state.settings.section;
             let line = format!("{} {name}", marker_for(selected));
             let style = if selected {
                 selected_row_style(theme)
@@ -56,7 +47,7 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 .borders(Borders::ALL)
                 .title(
                     SECTIONS
-                        .get(state.settings_section)
+                        .get(state.settings.section)
                         .copied()
                         .unwrap_or("Settings"),
                 )
@@ -67,13 +58,13 @@ pub fn draw(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 }
 
 fn section_body(state: &AppState) -> String {
-    match state.settings_section {
+    match state.settings.section {
         0 => format!(
             "read_only (cli): {}\nonboarding_completed: {}\nonboarding_pending: {}\nconfig: {}\n\nKeys: S save · o complete onboarding · d reset (confirm)\nEnter also saves.",
             state.read_only,
             state.config.onboarding_completed,
-            state.onboarding_pending,
-            state.config_path.display()
+            state.settings.onboarding_pending,
+            crate::sanitize::sanitize_path_display(&state.config_path)
         ),
         1 => format!(
             "terminal_profile: {}  (key t to cycle)\ncolor: {}  (key c)\nascii: {}\n\nApplies immediately to Theme.",
@@ -94,7 +85,7 @@ fn section_body(state: &AppState) -> String {
         ),
         4 => format!(
             "log preset: {}\nmax_log_entries: {}\nreport_retention_days: {}\n\nCleanup old reports: run from Startup or leave retention > 0.",
-            state.log_preset.label(),
+            state.log.preset.label(),
             state.config.max_log_entries,
             state.config.report_retention_days
         ),
@@ -102,7 +93,7 @@ fn section_body(state: &AppState) -> String {
             "diagnostics_light_scan: {}  (key 5)\nenable_smart_probes: {}  (key 4)\ndeep_requested: {}\n\nLight = skip SMART. Deep (D on Diagnostics) enables expensive probes.",
             state.config.diagnostics_light_scan,
             state.config.enable_smart_probes,
-            state.diagnostic_deep
+            state.diagnostic.deep
         ),
         6 => format!(
             "confirm_sigterm: {}  (1)\nconfirm_sigkill: {}  (2)\nconfirm_service_actions: {}  (3)\nPrefer --read-only for observation.",
