@@ -79,7 +79,7 @@ fn draw_header(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme
         .borders(Borders::ALL)
         .border_style(theme.border())
         .title(Span::styled(title, theme.title()));
-    let status = state.status_message.as_deref().unwrap_or("ready");
+    let status = state.status_line();
     let p = Paragraph::new(status).style(theme.muted()).block(block);
     frame.render_widget(p, area);
 }

@@ -218,11 +218,6 @@ pub fn apply_event(state: &mut AppState, event: AppEvent) -> Vec<SideEffect> {
             ));
             Vec::new()
         }
-        AppEvent::LogsUpdated(entries) => {
-            // Backward-compat: treat as append (follow path). Prefer LogsReplaced/Appended.
-            apply_logs_appended(state, entries);
-            Vec::new()
-        }
         AppEvent::LogsReplaced(entries) => {
             apply_logs_replaced(state, entries);
             Vec::new()

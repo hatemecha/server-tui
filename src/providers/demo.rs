@@ -438,6 +438,10 @@ impl AdministrativeExecutor for DemoAdmin {
     fn read_only(&self) -> bool {
         self.read_only
     }
+
+    fn unit_registry(&self) -> Option<UnitRegistry> {
+        Some(self.registry.clone())
+    }
 }
 
 struct DemoDiagnostics;

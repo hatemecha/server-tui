@@ -2,8 +2,7 @@
 
 use crate::model::diagnostics::thresholds;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
-    Severity,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen, Severity,
 };
 
 pub fn rule_resource_pressure(snap: &DiagnosticSnapshot) -> Vec<Finding> {
@@ -60,7 +59,7 @@ fn simple_pressure(id: &str, title: &str, summary: String, severity: Severity) -
             details: vec![],
         },
         targets: vec![DiagnosticTarget {
-            screen: ScreenTarget::Dashboard,
+            screen: Screen::Dashboard,
             search: None,
         }],
         suggested_check: None,

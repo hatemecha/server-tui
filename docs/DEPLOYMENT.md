@@ -62,7 +62,22 @@ fish_add_path $HOME/.local/bin
 
 ### Option C — GitHub Releases binaries
 
-**Not available yet.** After the first tagged release with attached artifacts, this section can document downloading a checked binary. Until then, use Option A or B.
+Published for tags matching `v*` (e.g. `v0.3.1`). Prefer the **gnu** asset for typical glibc distros:
+
+- `server-tui-<tag>-x86_64-unknown-linux-gnu.tar.gz` (+ `SHA256SUMS`)
+
+Optional experimental musl assets may appear when the musl CI job succeeds; treat them as best-effort.
+
+```bash
+# after downloading the gnu tarball beside SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+tar -xzf server-tui-v0.3.1-x86_64-unknown-linux-gnu.tar.gz
+install -m 0755 server-tui-v0.3.1-x86_64-unknown-linux-gnu/server-tui ~/.local/bin/server-tui
+# or: sudo install -m 0755 … /usr/local/bin/server-tui
+server-tui --version
+```
+
+Release page: https://github.com/hatemecha/server-tui/releases
 
 ### crates.io
 

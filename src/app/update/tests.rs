@@ -37,11 +37,7 @@ fn read_only_blocks_signal_dialog_status() {
         start_time: 1,
     });
     let _ = apply_action(&mut state, AppAction::SignalTerm);
-    assert!(state
-        .status_message
-        .as_deref()
-        .unwrap_or("")
-        .contains("READ ONLY"));
+    assert!(state.status_line().contains("READ ONLY"));
 }
 
 #[test]
@@ -184,11 +180,7 @@ fn search_on_dashboard_does_not_stick() {
     assert!(map_key(&state, slash).is_none());
     let _ = apply_action(&mut state, AppAction::Search);
     assert!(!state.searching);
-    assert!(state
-        .status_message
-        .as_deref()
-        .unwrap_or("")
-        .contains("no list to filter"));
+    assert!(state.status_line().contains("no list to filter"));
 }
 
 #[test]

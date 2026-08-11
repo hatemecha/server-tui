@@ -210,19 +210,19 @@ fn map_systemd_error(action: ServiceActionKind, unit: &str, err: zbus::Error) ->
     {
         if polkit_evidence {
             AppError::Permission(format!(
-                "No fue posible {} {}. Permiso denegado (systemd/D-Bus; evidencia Polkit en el error).",
+                "Could not {} {}. Permission denied (systemd/D-Bus; Polkit evidence in error).",
                 action.label(),
                 unit
             ))
         } else {
             AppError::Permission(format!(
-                "No fue posible {} {}. Permiso denegado por política systemd/D-Bus.",
+                "Could not {} {}. Permission denied by systemd/D-Bus policy.",
                 action.label(),
                 unit
             ))
         }
     } else {
-        AppError::Systemd(format!("No fue posible {} {unit}: {msg}", action.label()))
+        AppError::Systemd(format!("Could not {} {unit}: {msg}", action.label()))
     }
 }
 

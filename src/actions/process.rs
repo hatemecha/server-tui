@@ -85,6 +85,10 @@ impl AdministrativeExecutor for LinuxAdminExecutor {
     fn read_only(&self) -> bool {
         false
     }
+
+    fn unit_registry(&self) -> Option<UnitRegistry> {
+        Some(self.registry.clone())
+    }
 }
 
 fn read_process_start_time(pid: u32) -> Result<u64, AppError> {

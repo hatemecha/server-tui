@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::Screen;
+
 /// Overall host health from required/optional subsystem observation + findings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -124,32 +126,8 @@ impl Category {
 /// Deep-link target into an existing screen with optional search prefill.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticTarget {
-    pub screen: ScreenTarget,
+    pub screen: Screen,
     pub search: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ScreenTarget {
-    Dashboard,
-    Processes,
-    Services,
-    Logs,
-    Storage,
-    Diagnostics,
-}
-
-impl ScreenTarget {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Dashboard => "dashboard",
-            Self::Processes => "processes",
-            Self::Services => "services",
-            Self::Logs => "logs",
-            Self::Storage => "storage",
-            Self::Diagnostics => "diagnostics",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,7 +188,7 @@ pub fn finding_matches(f: &Finding, query: &str) -> bool {
     }
     f.targets
         .iter()
-        .any(|t| hit(t.screen.label()) || t.search.as_ref().is_some_and(|s| hit(s)))
+        .any(|t| hit(t.screen.slug()) || t.search.as_ref().is_some_and(|s| hit(s)))
 }
 
 /// Pure snapshot built from in-memory app/probe data for the evaluator.

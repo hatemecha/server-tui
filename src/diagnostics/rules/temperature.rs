@@ -3,8 +3,7 @@
 use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::diagnostics::thresholds;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
-    Severity,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen, Severity,
 };
 
 pub fn rule_temperature(snap: &DiagnosticSnapshot) -> Vec<Finding> {
@@ -27,7 +26,7 @@ pub fn rule_temperature(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                 details: vec!["Wording intentionally avoids claiming thermal throttling.".into()],
             },
             targets: vec![DiagnosticTarget {
-                screen: ScreenTarget::Dashboard,
+                screen: Screen::Dashboard,
                 search: None,
             }],
             suggested_check: None,

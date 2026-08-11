@@ -2,7 +2,7 @@
 
 use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -30,7 +30,7 @@ pub fn rule_failed_services(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                 )],
             },
             targets: vec![DiagnosticTarget {
-                screen: ScreenTarget::Services,
+                screen: Screen::Services,
                 search: Some(u.unit.clone()),
             }],
             suggested_check: Some(SuggestedCheck {

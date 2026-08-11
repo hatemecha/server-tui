@@ -30,7 +30,7 @@ Rules:
 5. External process args use `Command::arg` / `args` — never `sh -c`.
 6. Providers never write `state.toml` (single-writer runtime).
 7. Runtime lives in `src/runtime/` (`app_loop`, `effects`, `privilege`); `main` stays CLI → bootstrap → run → exit.
-8. Screen state lives in `src/app/substates.rs`; update path in `src/app/update/` (keymap locals before globals).
+8. Screen state lives in `src/app/substates.rs`; update path in `src/app/update/` (keymap locals before globals). `Screen` enum lives in `src/model/screen.rs` (re-exported from `app::action`).
 9. Probe I/O under `providers/linux/diagnostics/`; pure rules under `diagnostics/rules/`.
 
 ## MVP boundaries — do not implement yet

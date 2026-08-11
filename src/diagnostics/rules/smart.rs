@@ -2,7 +2,7 @@
 
 use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -25,7 +25,7 @@ pub fn rule_smart(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                     details: disk.details.clone(),
                 },
                 targets: vec![DiagnosticTarget {
-                    screen: ScreenTarget::Diagnostics,
+                    screen: Screen::Diagnostics,
                     search: Some(disk.device.clone()),
                 }],
                 suggested_check: Some(SuggestedCheck {
@@ -61,7 +61,7 @@ pub fn rule_smart(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                         details: disk.details.clone(),
                     },
                     targets: vec![DiagnosticTarget {
-                        screen: ScreenTarget::Storage,
+                        screen: Screen::Storage,
                         search: None,
                     }],
                     suggested_check: Some(SuggestedCheck {

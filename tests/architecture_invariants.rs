@@ -6,10 +6,6 @@ use server_tui::app::action::{AppAction, Screen};
 use server_tui::app::state::AppState;
 use server_tui::app::update::map_key;
 use server_tui::config::Config;
-use server_tui::keymap::{
-    find_scope_collisions, find_unreachable_under_global_first, global_digit_bindings,
-    settings_bindings,
-};
 use server_tui::settings::SettingId;
 use server_tui::viewport::content_rows_from_terminal;
 
@@ -30,6 +26,7 @@ fn demo_state() -> AppState {
 
 #[test]
 fn settings_digits_toggle_not_navigate() {
+    // Preserved invariant: screen-local Settings bindings beat global digit nav.
     let mut state = demo_state();
     state.screen = Screen::Settings;
     let action = map_key(&state, key('1')).expect("settings 1");
@@ -55,12 +52,26 @@ fn global_digits_change_screen_outside_settings() {
 }
 
 #[test]
-fn registry_detects_settings_vs_global_digit_overlap() {
-    let unreachable =
-        find_unreachable_under_global_first(settings_bindings(), global_digit_bindings());
-    assert!(!unreachable.is_empty());
-    assert!(find_scope_collisions(settings_bindings()).is_empty());
-    assert!(find_scope_collisions(global_digit_bindings()).is_empty());
+fn settings_digit_coverage_matches_toggles() {
+    // Authoritative map is map_key (app/update/keymap.rs), not a parallel registry.
+    let mut state = demo_state();
+    state.screen = Screen::Settings;
+    let expected = [
+        ('1', SettingId::ConfirmSigterm),
+        ('2', SettingId::ConfirmSigkill),
+        ('3', SettingId::ConfirmServiceActions),
+        ('4', SettingId::EnableSmartProbes),
+        ('5', SettingId::DiagnosticsLightScan),
+    ];
+    for (digit, id) in expected {
+        assert!(
+            matches!(
+                map_key(&state, key(digit)),
+                Some(AppAction::ToggleSetting(sid)) if sid == id
+            ),
+            "settings digit {digit}"
+        );
+    }
 }
 
 #[test]
@@ -153,5 +164,31 @@ fn diagnostic_rules_stay_pure() {
     assert!(
         offenders.is_empty(),
         "diagnostics must stay pure (found: {offenders:?})"
+    );
+}
+
+#[test]
+fn providers_must_not_write_state_toml() {
+    let mut files = Vec::new();
+    walk_rs_files(std::path::Path::new("src/providers"), &mut files);
+    let mut offenders = Vec::new();
+    for path in files {
+        let body = std::fs::read_to_string(&path).unwrap();
+        for (i, line) in body.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if trimmed.contains("state.toml")
+                || trimmed.contains("save_atomic")
+                || trimmed.contains("AppPersistState")
+            {
+                offenders.push(format!("{}:{}", path.display(), i + 1));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "providers must not write persist state (found: {offenders:?})"
     );
 }

@@ -1,7 +1,7 @@
 //! Pure diagnostic rule module.
 
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -31,11 +31,11 @@ pub fn rule_oom(snap: &DiagnosticSnapshot) -> Vec<Finding> {
         },
         targets: vec![
             DiagnosticTarget {
-                screen: ScreenTarget::Logs,
+                screen: Screen::Logs,
                 search: Some("oom".into()),
             },
             DiagnosticTarget {
-                screen: ScreenTarget::Processes,
+                screen: Screen::Processes,
                 search: None,
             },
         ],

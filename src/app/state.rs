@@ -112,7 +112,6 @@ pub struct AppState {
     pub width: u16,
     pub height: u16,
     pub should_quit: bool,
-    pub status_message: Option<String>,
     pub last_error: Option<AppError>,
     pub dialog: Option<Dialog>,
     pub searching: bool,
@@ -168,7 +167,6 @@ impl AppState {
             width: 80,
             height: 24,
             should_quit: false,
-            status_message: None,
             last_error: None,
             dialog: None,
             searching: false,
@@ -330,9 +328,7 @@ impl AppState {
     }
 
     pub fn set_toast(&mut self, kind: ToastKind, msg: impl Into<String>) {
-        let toast = StatusToast::new(kind, msg);
-        self.status_message = Some(toast.message.clone());
-        self.toast = Some(toast);
+        self.toast = Some(StatusToast::new(kind, msg));
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
@@ -350,9 +346,16 @@ impl AppState {
     pub fn set_error(&mut self, err: AppError) {
         tracing::error!("{}", err);
         let msg = err.user_message();
-        self.status_message = Some(crate::sanitize::sanitize_text(&msg));
         self.toast = Some(StatusToast::sticky_error(&msg));
         self.last_error = Some(err);
+    }
+
+    /// Chrome status line — single source of truth is `toast`.
+    pub fn status_line(&self) -> &str {
+        self.toast
+            .as_ref()
+            .map(|t| t.message.as_str())
+            .unwrap_or("ready")
     }
 
     pub fn tick_toasts(&mut self) {
@@ -380,5 +383,32 @@ impl AppState {
         if let Err(e) = self.persist.save_atomic(&self.persist_path) {
             tracing::warn!("persist save failed: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod status_line_tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::status::ToastKind;
+    use std::path::PathBuf;
+
+    #[test]
+    fn status_line_follows_toast_only() {
+        let mut state = AppState::new(
+            Config::default(),
+            true,
+            true,
+            true,
+            false,
+            PathBuf::from("/tmp"),
+        );
+        assert_eq!(state.status_line(), "ready");
+        state.set_status("hello");
+        assert_eq!(state.status_line(), "hello");
+        state.set_toast(ToastKind::Success, "saved");
+        assert_eq!(state.status_line(), "saved");
+        state.toast = None;
+        assert_eq!(state.status_line(), "ready");
     }
 }

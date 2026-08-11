@@ -5,7 +5,7 @@ use std::process::Command;
 
 use crate::actions::trusted::{resolve_trusted, run_sudo_systemctl, RealCommandRunner};
 use crate::error::AppError;
-use crate::model::ServiceActionKind;
+use crate::model::{ServiceActionKind, UnitRegistry};
 use crate::terminal::TerminalGuard;
 
 /// RAII: leave alternate screen for an external prompt; Drop always reenters.
@@ -39,10 +39,12 @@ impl Drop for TerminalSuspension<'_> {
 }
 
 /// Leave TUI → interactive `sudo -v` → reenter → `sudo -n systemctl <action> <unit>`.
+/// `registry` must be the shared known-unit allowlist (SECURITY.md).
 pub async fn escalate_sudo_systemctl(
     terminal: &mut TerminalGuard,
     unit: &str,
     action: ServiceActionKind,
+    registry: &UnitRegistry,
 ) -> Result<(), AppError> {
     let mut guard = TerminalSuspension::leave(terminal)?;
     println!();
@@ -67,7 +69,7 @@ pub async fn escalate_sudo_systemctl(
     let _ = guard.terminal.reenter();
     guard.disarm();
 
-    run_sudo_systemctl(&RealCommandRunner, action.label(), unit)
+    run_sudo_systemctl(&RealCommandRunner, action, unit, registry)
 }
 
 #[cfg(test)]

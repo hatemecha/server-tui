@@ -2,6 +2,7 @@ pub mod action;
 pub mod event;
 pub mod inspect_actions;
 pub mod menus;
+pub mod settings_actions;
 pub mod state;
 pub mod substates;
 pub mod update;

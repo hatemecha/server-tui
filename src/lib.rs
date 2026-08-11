@@ -13,7 +13,6 @@ pub mod doctor;
 pub mod error;
 pub mod fsutil;
 pub mod glossary;
-pub mod keymap;
 pub mod model;
 pub mod persist;
 pub mod preview;

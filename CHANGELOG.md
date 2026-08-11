@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - SMART probes no longer write `state.toml` (runtime merges CRC observations)
 - File preview opens with `O_NOFOLLOW` + fd re-validation
 - Report/config/state files created as `0600`, dirs `0700`
+- Product UI/error strings English-only (`AppError::user_message`, systemd permission maps)
+- Sudo elevation re-checks known-unit registry; typed `ServiceActionKind` on trusted argv
 
 ### Changed
 
@@ -36,12 +38,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `src/app/update/` split into keymap / reducer / events / navigation (locals-before-globals keymap remains source of truth)
 - Event loop, pollers, and side-effect runner moved to `src/runtime/` (`main` is CLI bootstrap only)
 - Linux diagnostic probes split under `providers/linux/diagnostics/`; pure rules under `diagnostics/rules/`; `evaluate()` composes rules
+- Single `Screen` type for navigation and diagnostic deep-links (`src/model/screen.rs`)
+- Status chrome reads toast only (`status_line`); settings actions extracted from inspect handlers
+- Docs: README status/install honesty; SUPPORT matches CI; ACKNOWLEDGEMENTS is sole attribution file
 
 ### Added
 
-- Keybinding registry helpers + architecture invariant / render matrix tests
-- Architecture tests: recursive `app`↛`ui` import check; diagnostics purity ban-list
+- Architecture invariant / render matrix tests (locals-before-globals, app↛ui, diagnostics purity, providers↛persist)
 - `RedactionPolicy` for support/export redaction
+
+### Removed
+
+- Parallel unused keybinding registry (`src/keymap.rs`); dead `execute_service_action` / `LogsUpdated`
+- Stub `THIRD_PARTY_REFERENCES.md`
 
 ## [0.3.0] — 2026-08-07
 

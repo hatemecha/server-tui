@@ -30,18 +30,30 @@ cargo run -- support --demo --format markdown
 | Layer | Path | May call |
 |-------|------|----------|
 | UI | `src/ui/` | app state (read), theme/status/viewport |
-| App | `src/app/` | model, config, profile, status, viewport, keymap — **not** `ui/` |
+| App | `src/app/` | model, config, profile, status, viewport — **not** `ui/` |
 | Runtime | `src/runtime/` (`app_loop`, `effects`, `privilege`); `main` is CLI bootstrap only | providers, side effects, terminal |
 | Providers | `src/providers/` (+ `linux/diagnostics/*` probes) | Linux/Demo APIs — **not** AppState; **no** `state.toml` writes |
 | Diagnostics | `src/diagnostics/` (`evaluator` + `rules/*`) | pure evaluate on snapshots only |
 | Actions | `src/actions/` | typed admin + trusted argv |
 
+Root `theme.rs` / `viewport.rs` / `status.rs` hold shared models so `app` can use them without importing `ui/`. `ui/theme.rs` and `ui/viewport.rs` are re-exports for paint code.
+
+Authoritative key map is `src/app/update/keymap.rs` (`map_key`). There is no parallel binding registry.
+
 ## How-tos
 
-- **Add a screen**: extend `Screen` in `src/app/action.rs`, keymap in `src/app/update/keymap.rs` (+ reducer/events as needed), screen substate in `src/app/substates.rs`, draw in `src/ui/`, footer + `docs/KEYBINDINGS.md`.
+- **Add a screen** (full surface):
+  1. Extend `Screen` in `src/model/screen.rs` (re-exported as `app::action::Screen`) — digits, labels, `supports_search`, serde slug.
+  2. Keymap locals in `src/app/update/keymap.rs` (locals before globals).
+  3. Screen substate in `src/app/substates.rs` + field on `AppState` if needed.
+  4. `SearchQueries` in `src/app/state.rs` when the screen is searchable.
+  5. Reducer `ChangeScreen` / refresh arms in `src/app/update/reducer.rs`; list length / viewport in `src/app/update/navigation.rs`.
+  6. Draw dispatch in `src/ui/mod.rs`, screen widget, footer hints in `src/ui/components.rs`, help/glossary as needed.
+  7. Update `docs/KEYBINDINGS.md`.
+  8. Deep-links from findings use the same `Screen` in `DiagnosticTarget` — no separate target enum.
 - **Add a provider**: trait in `src/providers/traits.rs`, linux + demo, wire bundles, unit tests with synthetic data.
 - **Add a diagnostic rule**: model field if needed → pure rule under `src/diagnostics/rules/` → wire in `evaluate()` → fixture tests; silent on probe failure. Probe I/O goes in `providers/linux/diagnostics/`, never in rules.
-- **Add admin action**: typed `AppAction` + confirm dialog (default Cancel) → `AdministrativeExecutor` only.
+- **Add admin action**: typed `AppAction` + confirm dialog (default Cancel) → `AdministrativeExecutor` only. Unit actions require `unit_looks_safe` **and** known-unit registry on both D-Bus and sudo elevation paths.
 - **Bump version**: PATCH for fixes/hardening; MINOR for user-visible features. Update `Cargo.toml`, `CHANGELOG.md` `[Unreleased]` → version section when tagging.
 
 ## Release

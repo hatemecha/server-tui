@@ -22,7 +22,6 @@ pub enum AppEvent {
     MetricsUpdated(SystemMetrics),
     ProcessesUpdated(Vec<ProcessInfo>),
     ServicesUpdated(Vec<ServiceInfo>),
-    LogsUpdated(Vec<LogEntry>),
     /// Refresh replaces the ring buffer.
     LogsReplaced(Vec<LogEntry>),
     /// Follow appends (dedupe by cursor/fingerprint when possible).

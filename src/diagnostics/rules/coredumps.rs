@@ -1,7 +1,7 @@
 //! Pure diagnostic rule module.
 
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -34,7 +34,7 @@ pub fn rule_coredumps(snap: &DiagnosticSnapshot) -> Vec<Finding> {
             details,
         },
         targets: vec![DiagnosticTarget {
-            screen: ScreenTarget::Diagnostics,
+            screen: Screen::Diagnostics,
             search: Some("coredump".into()),
         }],
         suggested_check: Some(SuggestedCheck {

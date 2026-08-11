@@ -5,8 +5,12 @@
 - Settings keybinding precedence; ActiveState exact paint; elevation dialog + RAII terminal suspension
 - LogsReplaced/Appended; SaveReport side effect; single-writer persist (SMART)
 - Config watch for pollers; details cache TTL; preview O_NOFOLLOW; 0600/0700 reports
-- Dependency inversion for viewport/status/profiles; SettingId; keybinding registry helpers
+- Dependency inversion for viewport/status/profiles; SettingId; locals-before-globals `map_key`
 - Storage entry budget; process-tree guards; architecture/render matrix tests; ADRs + MAINTAINING
+
+## Post-0.3.1 maintainability
+
+Shipped in **0.3.1** (see CHANGELOG): English UI errors; sudo path known-unit registry; unified `Screen`; status_line; docs honesty for Releases.
 
 ## Done in 0.3
 

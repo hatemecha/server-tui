@@ -38,7 +38,7 @@ async fn read_only_executor_blocks_admin() {
         err.to_string().contains("read-only")
             || err.user_message().contains("READ ONLY")
             || err.user_message().contains("read-only")
-            || err.user_message().contains("denegado")
+            || err.user_message().contains("Permission denied")
             || matches!(err, server_tui::error::AppError::Permission(_))
     );
 }

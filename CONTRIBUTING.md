@@ -38,7 +38,7 @@ Use `--demo` providers / fakes. Optional manual demo unit: `scripts/create-demo-
 - Describe *why*, not only *what*.
 - Note how you tested (commands).
 - Keep the license MIT; do not add proprietary code.
-- Preserve attribution in [THIRD_PARTY_REFERENCES.md](THIRD_PARTY_REFERENCES.md) when relevant.
+- Preserve attribution in [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) when relevant.
 
 ## License
 

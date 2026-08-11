@@ -1,7 +1,7 @@
 //! Pure diagnostic rule module.
 
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -22,7 +22,7 @@ pub fn rule_clock_sync(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                 details: vec![],
             },
             targets: vec![DiagnosticTarget {
-                screen: ScreenTarget::Diagnostics,
+                screen: Screen::Diagnostics,
                 search: Some("clock".into()),
             }],
             suggested_check: Some(SuggestedCheck {

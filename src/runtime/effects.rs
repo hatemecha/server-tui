@@ -12,6 +12,7 @@ use crate::app::state::AppState;
 use crate::app::update::SideEffect;
 use crate::config::{expand_tilde, Config};
 use crate::diagnostics::{compute_health_status, evaluate, format_text_report};
+use crate::error::AppError;
 use crate::providers::ProviderBundle;
 use crate::runtime::privilege::escalate_sudo_systemctl;
 use crate::terminal::TerminalGuard;
@@ -276,7 +277,14 @@ pub(crate) async fn handle_effects(
                 });
             }
             SideEffect::SudoServiceAction { unit, action } => {
-                if let Err(err) = escalate_sudo_systemctl(terminal, &unit, action).await {
+                let Some(registry) = providers.admin.unit_registry() else {
+                    state.set_error(AppError::Permission(
+                        "elevated systemd actions are unavailable in this mode".into(),
+                    ));
+                    continue;
+                };
+                if let Err(err) = escalate_sudo_systemctl(terminal, &unit, action, &registry).await
+                {
                     state.set_error(err);
                 } else {
                     state.set_success(format!("sudo {} {} ok", action.label(), unit));

@@ -1,8 +1,7 @@
 //! Pure diagnostic rule module.
 
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
-    Severity,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen, Severity,
 };
 
 pub fn rule_etc_meta(snap: &DiagnosticSnapshot) -> Vec<Finding> {
@@ -30,7 +29,7 @@ pub fn rule_etc_meta(snap: &DiagnosticSnapshot) -> Vec<Finding> {
             details,
         },
         targets: vec![DiagnosticTarget {
-            screen: ScreenTarget::Diagnostics,
+            screen: Screen::Diagnostics,
             search: Some("etc".into()),
         }],
         suggested_check: None,

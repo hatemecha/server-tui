@@ -2,7 +2,7 @@
 
 use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -26,7 +26,7 @@ pub fn rule_previous_boot(snap: &DiagnosticSnapshot) -> Vec<Finding> {
             details: vec![format!("previous_boot_id={}", prev.boot_id)],
         },
         targets: vec![DiagnosticTarget {
-            screen: ScreenTarget::Logs,
+            screen: Screen::Logs,
             search: None,
         }],
         suggested_check: Some(SuggestedCheck {

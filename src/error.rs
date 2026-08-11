@@ -41,23 +41,24 @@ pub enum AppError {
 }
 
 impl AppError {
+    /// Human-readable UI/CLI text. English is the product language (AGENTS.md).
     pub fn user_message(&self) -> String {
         match self {
-            Self::Terminal(m) => format!("Problema con la terminal: {m}"),
+            Self::Terminal(m) => format!("Terminal problem: {m}"),
             Self::Configuration { path, message } => {
-                format!("Configuración inválida ({}): {message}", path.display())
+                format!("Invalid configuration ({}): {message}", path.display())
             }
-            Self::Metrics(m) => format!("No se pudieron obtener métricas: {m}"),
-            Self::Process(m) => format!("Operación sobre proceso: {m}"),
+            Self::Metrics(m) => format!("Could not collect metrics: {m}"),
+            Self::Process(m) => format!("Process operation: {m}"),
             Self::Permission(m) => {
-                format!("Permiso denegado: {m}. La aplicación continúa en modo de observación.")
+                format!("Permission denied: {m}. Continuing in observation mode.")
             }
             Self::Systemd(m) => format!("systemd: {m}"),
             Self::Journal(m) => format!("journald/journalctl: {m}"),
-            Self::Storage(m) => format!("Almacenamiento: {m}"),
-            Self::Unsupported(m) => format!("No disponible: {m}"),
-            Self::ExternalCommand(m) => format!("Comando externo: {m}"),
-            Self::Internal(m) => format!("Error interno: {m}"),
+            Self::Storage(m) => format!("Storage: {m}"),
+            Self::Unsupported(m) => format!("Unavailable: {m}"),
+            Self::ExternalCommand(m) => format!("External command: {m}"),
+            Self::Internal(m) => format!("Internal error: {m}"),
         }
     }
 
@@ -69,5 +70,42 @@ impl AppError {
 impl From<std::io::Error> for AppError {
     fn from(value: std::io::Error) -> Self {
         Self::Internal(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_messages_are_english() {
+        let samples = [
+            AppError::Terminal("x".into()).user_message(),
+            AppError::Configuration {
+                path: PathBuf::from("/tmp/c"),
+                message: "bad".into(),
+            }
+            .user_message(),
+            AppError::Metrics("x".into()).user_message(),
+            AppError::Process("x".into()).user_message(),
+            AppError::Permission("x".into()).user_message(),
+            AppError::Storage("x".into()).user_message(),
+            AppError::Unsupported("x".into()).user_message(),
+            AppError::ExternalCommand("x".into()).user_message(),
+            AppError::Internal("x".into()).user_message(),
+        ];
+        for msg in samples {
+            assert!(
+                !msg.contains("Problema")
+                    && !msg.contains("Permiso")
+                    && !msg.contains("Configuración")
+                    && !msg.contains("Almacenamiento")
+                    && !msg.contains("denegado"),
+                "non-English UI message: {msg}"
+            );
+        }
+        assert!(AppError::Permission("x".into())
+            .user_message()
+            .contains("Permission denied"));
     }
 }

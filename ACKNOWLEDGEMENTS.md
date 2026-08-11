@@ -11,5 +11,3 @@ server-tui stands on excellent open-source foundations:
 - [jwalk](https://github.com/jessegrosjean/jwalk) — parallel directory walk
 
 UX inspiration (patterns only, not copies): btop, bottom, systemctl-tui, lazygit, lnav, ncdu/gdu, Cockpit.
-
-Former note file `THIRD_PARTY_REFERENCES.md` is superseded by this document.

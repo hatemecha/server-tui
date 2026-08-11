@@ -7,9 +7,7 @@ use crate::app::update::navigation::{
     move_selection, selected_service_unit, set_selection, step_log_match,
 };
 use crate::app::update::side_effect::SideEffect;
-use crate::model::{
-    preserve_selection, ProcessSignal, ScreenTarget, ServiceActionKind, ServiceFilter,
-};
+use crate::model::{preserve_selection, ProcessSignal, ServiceActionKind, ServiceFilter};
 
 pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> {
     let mut effects = Vec::new();
@@ -364,7 +362,7 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
                 .and_then(|f| f.targets.first())
                 .cloned();
             if let Some(target) = target {
-                let screen = screen_from_target(target.screen);
+                let screen = target.screen;
                 if let Some(q) = target.search.clone() {
                     if let Some(slot) = state.search.get_mut(screen) {
                         *slot = q;
@@ -464,15 +462,4 @@ pub fn apply_action(state: &mut AppState, action: AppAction) -> Vec<SideEffect> 
         }
     }
     effects
-}
-
-fn screen_from_target(t: ScreenTarget) -> Screen {
-    match t {
-        ScreenTarget::Dashboard => Screen::Dashboard,
-        ScreenTarget::Processes => Screen::Processes,
-        ScreenTarget::Services => Screen::Services,
-        ScreenTarget::Logs => Screen::Logs,
-        ScreenTarget::Storage => Screen::Storage,
-        ScreenTarget::Diagnostics => Screen::Diagnostics,
-    }
 }

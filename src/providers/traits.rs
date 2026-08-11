@@ -81,6 +81,18 @@ pub trait AdministrativeExecutor: Send + Sync {
     ) -> Result<(), AppError>;
     async fn service_action(&self, unit: &str, action: ServiceActionKind) -> Result<(), AppError>;
     fn read_only(&self) -> bool;
+    /// Shared known-unit allowlist, when this executor participates in unit actions.
+    fn unit_registry(&self) -> Option<crate::model::UnitRegistry> {
+        None
+    }
+    /// Known-unit registry membership for privileged unit actions (D-Bus and sudo).
+    /// Empty registry means the list has not completed — fail closed.
+    fn unit_known_for_action(&self, unit: &str) -> bool {
+        match self.unit_registry() {
+            Some(reg) => !reg.is_empty() && reg.contains(unit),
+            None => false,
+        }
+    }
     /// True when failure is a D-Bus access denial that may recover via sudo.
     fn permission_may_sudo(&self, err: &AppError) -> bool {
         match err {

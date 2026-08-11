@@ -2,7 +2,7 @@
 
 use crate::diagnostics::rules::common::sanitize_id;
 use crate::model::{
-    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, ScreenTarget,
+    Category, Confidence, DiagnosticSnapshot, DiagnosticTarget, Evidence, Finding, Screen,
     Severity, SuggestedCheck,
 };
 
@@ -29,7 +29,7 @@ pub fn rule_journal_critical(snap: &DiagnosticSnapshot) -> Vec<Finding> {
                 details: vec![format!("count={} sample={}", g.count, g.sample_message)],
             },
             targets: vec![DiagnosticTarget {
-                screen: ScreenTarget::Logs,
+                screen: Screen::Logs,
                 search: Some(g.unit.clone()),
             }],
             suggested_check: Some(SuggestedCheck {

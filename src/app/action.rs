@@ -5,60 +5,7 @@ use std::path::PathBuf;
 use crate::model::{ProcessSignal, ServiceActionKind};
 use crate::settings::SettingId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    Dashboard,
-    Processes,
-    Services,
-    Logs,
-    Storage,
-    Diagnostics,
-    Settings,
-}
-
-impl Screen {
-    pub fn from_digit(c: char) -> Option<Self> {
-        match c {
-            '1' => Some(Self::Dashboard),
-            '2' => Some(Self::Processes),
-            '3' => Some(Self::Services),
-            '4' => Some(Self::Logs),
-            '5' => Some(Self::Storage),
-            '6' => Some(Self::Diagnostics),
-            '7' => Some(Self::Settings),
-            _ => None,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Dashboard => "Dashboard",
-            Self::Processes => "Processes",
-            Self::Services => "Services",
-            Self::Logs => "Logs",
-            Self::Storage => "Storage",
-            Self::Diagnostics => "Diagnostics",
-            Self::Settings => "Settings",
-        }
-    }
-
-    pub fn all() -> &'static [Screen] {
-        &[
-            Self::Dashboard,
-            Self::Processes,
-            Self::Services,
-            Self::Logs,
-            Self::Storage,
-            Self::Diagnostics,
-            Self::Settings,
-        ]
-    }
-
-    /// Screens with a filterable list (Dashboard/Settings are overview-only).
-    pub fn supports_search(self) -> bool {
-        !matches!(self, Self::Dashboard | Self::Settings)
-    }
-}
+pub use crate::model::Screen;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusPane {
