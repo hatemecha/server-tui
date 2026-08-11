@@ -14,7 +14,7 @@ See also [AGENTS.md](AGENTS.md), [docs/MAINTAINING.md](docs/MAINTAINING.md), and
 
 `AppState` shell owns navigation/runtime overlays plus coherent screen substates (`ProcessState`, `ServiceState`, `LogState`, `StorageState`, `DiagnosticState`, `SettingsState` in `src/app/substates.rs`), **per-screen** `SearchQueries`, dialogs (confirm with `ConfirmChoice` default Cancel, elevation confirm, help, glossary, report), metric history, and XDG persist state.
 
-Update path is split under `src/app/update/` (`keymap`, `reducer`, `events`, `navigation`, `side_effect`). Keymap resolves screen-locals before globals so Settings digits are not stomped.
+Update path is split under `src/app/update/` (`keymap`, `reducer`, `events`, `navigation`, `side_effect`). Keymap resolves digit screen navigation before screen-locals so `1`–`7` always change screens.
 
 Viewport / toast / terminal+performance profiles live outside `ui/` (`src/viewport.rs`, `src/status.rs`, `src/profile.rs`) so `app` does not depend on `ui`.
 

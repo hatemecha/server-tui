@@ -117,10 +117,11 @@ async fn run(cli: Cli) -> Result<(), AppError> {
         state.screen = server_tui::app::Screen::Dashboard;
         state.set_status("WALLBOARD: dashboard mode (w to toggle)");
     } else if !state.config.onboarding_completed {
+        // Always land on Dashboard; Settings stays optional via digit 7.
         state.settings.onboarding_pending = true;
-        state.screen = server_tui::app::Screen::Settings;
+        state.screen = server_tui::app::Screen::Dashboard;
         state.set_status(
-            "First run: review Settings (7). Recommended: terminal auto, performance balanced, --read-only.",
+            "First run: Dashboard ready. Press 7 for Settings (optional) · Tab enters content · 1–7 switch screens.",
         );
     } else if state.demo {
         state.set_status("DEMO mode: synthetic data only; host is not modified.");

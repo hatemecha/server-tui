@@ -200,8 +200,12 @@ pub fn footer_hints(state: &AppState) -> String {
         crate::app::Screen::Settings => {
             hints.extend([
                 KeyHint {
-                    key: "1..5",
-                    action: "toggles",
+                    key: "T/K/A",
+                    action: "safety",
+                },
+                KeyHint {
+                    key: "M/L",
+                    action: "diag",
                 },
                 KeyHint {
                     key: "t/p",

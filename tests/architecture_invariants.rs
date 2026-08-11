@@ -25,16 +25,12 @@ fn demo_state() -> AppState {
 }
 
 #[test]
-fn settings_digits_toggle_not_navigate() {
-    // Preserved invariant: screen-local Settings bindings beat global digit nav.
+fn settings_digits_always_navigate() {
+    // Digits always change screens, including while on Settings.
     let mut state = demo_state();
     state.screen = Screen::Settings;
     let action = map_key(&state, key('1')).expect("settings 1");
-    assert!(matches!(
-        action,
-        AppAction::ToggleSetting(SettingId::ConfirmSigterm)
-    ));
-    // Digit 6 has no settings mapping → global ChangeScreen(Diagnostics)
+    assert!(matches!(action, AppAction::ChangeScreen(Screen::Dashboard)));
     let action = map_key(&state, key('6')).expect("settings 6");
     assert!(matches!(
         action,
@@ -52,24 +48,24 @@ fn global_digits_change_screen_outside_settings() {
 }
 
 #[test]
-fn settings_digit_coverage_matches_toggles() {
+fn settings_letter_toggles() {
     // Authoritative map is map_key (app/update/keymap.rs), not a parallel registry.
     let mut state = demo_state();
     state.screen = Screen::Settings;
     let expected = [
-        ('1', SettingId::ConfirmSigterm),
-        ('2', SettingId::ConfirmSigkill),
-        ('3', SettingId::ConfirmServiceActions),
-        ('4', SettingId::EnableSmartProbes),
-        ('5', SettingId::DiagnosticsLightScan),
+        ('T', SettingId::ConfirmSigterm),
+        ('K', SettingId::ConfirmSigkill),
+        ('A', SettingId::ConfirmServiceActions),
+        ('M', SettingId::EnableSmartProbes),
+        ('L', SettingId::DiagnosticsLightScan),
     ];
-    for (digit, id) in expected {
+    for (ch, id) in expected {
         assert!(
             matches!(
-                map_key(&state, key(digit)),
+                map_key(&state, key(ch)),
                 Some(AppAction::ToggleSetting(sid)) if sid == id
             ),
-            "settings digit {digit}"
+            "settings toggle {ch}"
         );
     }
 }

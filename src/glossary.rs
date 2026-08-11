@@ -46,13 +46,13 @@ pub fn terms() -> &'static [GlossaryTerm] {
     &[
         GlossaryTerm {
             term: "screens",
-            definition: "1 Dashboard · 2 Processes · 3 Services · 4 Logs · 5 Storage · 6 Diagnostics. Digit keys jump.",
+            definition: "1 Dashboard · 2 Processes · 3 Services · 4 Logs · 5 Storage · 6 Diagnostics · 7 Settings. Digit keys always jump screens.",
             aliases: &["1", "2", "3", "4", "5", "6", "navigation"],
             screens: &[Screen::Dashboard],
         },
         GlossaryTerm {
             term: "panes",
-            definition: "Nav · Content · Details. Tab / Shift+Tab cycles focus; accent border marks the active pane.",
+            definition: "Nav · Content · Details. Tab / Shift+Tab enters content and cycles panes; accent border marks the active pane. Digits switch screens.",
             aliases: &["tab", "focus"],
             screens: &[
                 Screen::Dashboard,
@@ -83,7 +83,7 @@ pub fn terms() -> &'static [GlossaryTerm] {
         },
         GlossaryTerm {
             term: "confirm",
-            definition: "Destructive actions: Yes/Cancel, focus defaults to Cancel. Enter activates focus; y / n / Esc.",
+            definition: "Destructive actions: filled Yes/Cancel buttons, focus defaults to Cancel. Enter activates focus; y / n / Esc. ←/→ or Tab moves focus.",
             aliases: &["yes", "cancel", "y", "n"],
             screens: &[Screen::Processes, Screen::Services],
         },

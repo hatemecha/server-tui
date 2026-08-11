@@ -4,8 +4,8 @@
 
 | Key | Action |
 |-----|--------|
-| `1`–`7` | Screens (Dashboard … Settings) |
-| `Tab` / `Shift+Tab` | Cycle focus (nav / content / details) |
+| `1`–`7` | Screens (Dashboard … Settings) — always; never overridden by Settings |
+| `Tab` / `Shift+Tab` | Enter content / cycle focus (nav ↔ content ↔ details) |
 | `/` | Filter current list (not Dashboard/Settings) |
 | `Esc` | Clear filter / cancel dialog / cancel scan |
 | `r` | **Refresh** (always — never restart) |
@@ -87,7 +87,8 @@ No delete.
 |-----|--------|
 | `j`/`k` | Section |
 | `t` / `p` | Terminal / performance profile |
-| `1`–`5` | Safety / SMART / light-scan toggles (**override** global screen digits while on Settings) |
+| `T` / `K` / `A` | Safety toggles (sigterm / sigkill / service confirms) |
+| `M` / `L` | SMART probes / diagnostics light-scan |
 | `w` / `c` | Wallboard / color |
 | `S` / Enter | Atomic save |
 | `o` | Complete onboarding (confirm) |

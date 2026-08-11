@@ -8,7 +8,7 @@ pub fn draw_help(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     let text = format!(
         "{APP_NAME} — help\n\n\
 Screens: 1 Dashboard  2 Processes  3 Services  4 Logs  5 Storage  6 Diagnostics  7 Settings\n\
-Global: Tab focus  / filter (list screens)  r refresh  g glossary  ? help  q quit  Esc cancel\n\n\
+Global: Tab enter content / cycle panes  / filter (list screens)  r refresh  g glossary  ? help  q quit  Esc cancel\n\n\
 Filter: / on Processes, Services, Logs, Storage, Diagnostics, Glossary.\n\
   Type to filter; Enter keeps filter; Esc clears. Dashboard has no list filter.\n\n\
 Processes: t SIGTERM  K SIGKILL  z STOP  Z CONT  s sort  c full command  T tree  F follow\n\
@@ -16,7 +16,7 @@ Services:  s start  x stop  r refresh  R restart  u reload  e enable  d disable 
 Logs:      f follow  n/N next/prev match  p min priority  w wrap\n\
 Storage:   Enter open  Backspace parent  s sort  a apparent/disk  x stay-on-fs  Esc cancel scan\n\
 Diagnostics: Enter open related screen  o report  a acknowledge  r refresh\n\
-Settings:  1..5 safety/diag toggles  t terminal  p performance  w wallboard  c color  S save  d reset\n\n\
+Settings:  T/K/A safety toggles  M/L diag toggles  t terminal  p performance  w wallboard  c color  S save  d reset\n\n\
 CLI: server-tui doctor [--report|--json|--include-sensitive|--demo]\n\
 Modes: --demo  --read-only  --no-color  --ascii\n\
 Config: ~/.config/server-tui/config.toml\n\n\

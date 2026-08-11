@@ -7,6 +7,7 @@ use crate::app::action::{FocusPane, Screen};
 use crate::app::state::AppState;
 use crate::model::format_uptime;
 use crate::ui::components::footer_hints;
+use crate::ui::selection::{marker_for, selected_row_style};
 use crate::ui::theme::Theme;
 use crate::APP_NAME;
 
@@ -89,9 +90,10 @@ fn draw_nav(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme) {
         .iter()
         .enumerate()
         .map(|(i, s)| {
-            let label = format!("{} {}", i + 1, s.label());
-            let style = if *s == state.screen {
-                theme.highlight()
+            let selected = *s == state.screen;
+            let label = format!("{} {} {}", marker_for(selected), i + 1, s.label());
+            let style = if selected {
+                selected_row_style(theme)
             } else {
                 theme.normal()
             };
@@ -106,7 +108,7 @@ fn draw_nav(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Menu")
+            .title("Menu · 1–7")
             .border_style(border),
     );
     frame.render_widget(list, area);
@@ -117,8 +119,9 @@ fn draw_tabs(frame: &mut Frame<'_>, area: Rect, state: &AppState, theme: Theme) 
         .iter()
         .enumerate()
         .flat_map(|(i, s)| {
-            let style = if *s == state.screen {
-                theme.highlight()
+            let selected = *s == state.screen;
+            let style = if selected {
+                selected_row_style(theme)
             } else {
                 theme.muted()
             };

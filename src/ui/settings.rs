@@ -90,13 +90,13 @@ fn section_body(state: &AppState) -> String {
             state.config.report_retention_days
         ),
         5 => format!(
-            "diagnostics_light_scan: {}  (key 5)\nenable_smart_probes: {}  (key 4)\ndeep_requested: {}\n\nLight = skip SMART. Deep (D on Diagnostics) enables expensive probes.",
+            "diagnostics_light_scan: {}  (key L)\nenable_smart_probes: {}  (key M)\ndeep_requested: {}\n\nLight = skip SMART. Deep (D on Diagnostics) enables expensive probes.\nDigits 1–7 always switch screens.",
             state.config.diagnostics_light_scan,
             state.config.enable_smart_probes,
             state.diagnostic.deep
         ),
         6 => format!(
-            "confirm_sigterm: {}  (1)\nconfirm_sigkill: {}  (2)\nconfirm_service_actions: {}  (3)\nPrefer --read-only for observation.",
+            "confirm_sigterm: {}  (key T)\nconfirm_sigkill: {}  (key K)\nconfirm_service_actions: {}  (key A)\nPrefer --read-only for observation.\nDigits 1–7 always switch screens.",
             state.config.confirm_sigterm,
             state.config.confirm_sigkill,
             state.config.confirm_service_actions

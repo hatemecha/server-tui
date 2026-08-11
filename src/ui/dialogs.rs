@@ -36,16 +36,17 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
                 "\n"
             };
             let body = format!(
-                "Send {} to process?\n\nPID:      {pid}\nUser:     {user}\nCommand:  {command}{warn}\n{}",
+                "Send {} to process?\n\nPID:      {pid}\nUser:     {user}\nCommand:  {command}{warn}",
                 signal.label(),
-                confirm_buttons(*choice)
             );
-            draw_box(
+            draw_confirm(
                 frame,
                 area,
                 theme,
                 &format!("Confirm {}", signal.label()),
                 &body,
+                *choice,
+                ConfirmButtonSet::YesCancel,
             );
         }
         Dialog::ConfirmService {
@@ -54,11 +55,18 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
             choice,
         } => {
             let body = format!(
-                "Perform systemd action?\n\nUnit:    {unit}\nAction:  {}\n\n{}",
+                "Perform systemd action?\n\nUnit:    {unit}\nAction:  {}",
                 action.label(),
-                confirm_buttons(*choice)
             );
-            draw_box(frame, area, theme, "Confirm service action", &body);
+            draw_confirm(
+                frame,
+                area,
+                theme,
+                "Confirm service action",
+                &body,
+                *choice,
+                ConfirmButtonSet::YesCancel,
+            );
         }
         Dialog::ConfirmElevation {
             unit,
@@ -66,16 +74,17 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
             choice,
         } => {
             let body = format!(
-                "Administrator permission is required.\n\nUnit:    {unit}\nAction:  {}\n\nRun once with sudo (leave TUI → sudo -v → return), or Cancel.\n\n{}",
+                "Administrator permission is required.\n\nUnit:    {unit}\nAction:  {}\n\nRun once with sudo (leave TUI → sudo -v → return), or Cancel.",
                 action.label(),
-                confirm_buttons_sudo(*choice)
             );
-            draw_box(
+            draw_confirm(
                 frame,
                 area,
                 theme,
                 "Administrator permission is required",
                 &body,
+                *choice,
+                ConfirmButtonSet::SudoCancel,
             );
         }
         Dialog::ConfirmResetSettings { choice } | Dialog::ConfirmCompleteOnboarding { choice } => {
@@ -89,8 +98,15 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
                     "Mark onboarding complete and save config?",
                 ),
             };
-            let body = format!("{msg}\n\n{}", confirm_buttons(*choice));
-            draw_box(frame, area, theme, title, &body);
+            draw_confirm(
+                frame,
+                area,
+                theme,
+                title,
+                msg,
+                *choice,
+                ConfirmButtonSet::YesCancel,
+            );
         }
         Dialog::DiagnosticReport { body } => {
             draw_box(frame, area, theme, "Diagnostic report (redacted)", body);
@@ -141,20 +157,94 @@ pub fn draw(frame: &mut Frame<'_>, state: &AppState) {
     }
 }
 
-fn confirm_buttons(choice: ConfirmChoice) -> String {
-    let (yes, cancel) = match choice {
-        ConfirmChoice::Yes => ("[ YES ]", "  Cancel  "),
-        ConfirmChoice::Cancel => ("  Yes  ", "[ CANCEL ]"),
-    };
-    format!("{cancel}   {yes}\n\n←/→ focus · Enter · y/n")
+#[derive(Clone, Copy)]
+enum ConfirmButtonSet {
+    YesCancel,
+    SudoCancel,
 }
 
-fn confirm_buttons_sudo(choice: ConfirmChoice) -> String {
-    let (yes, cancel) = match choice {
-        ConfirmChoice::Yes => ("[ RUN ONCE WITH SUDO ]", "  Cancel  "),
-        ConfirmChoice::Cancel => ("  Run once with sudo  ", "[ CANCEL ]"),
+fn draw_confirm(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    theme: Theme,
+    title: &str,
+    body: &str,
+    choice: ConfirmChoice,
+    buttons: ConfirmButtonSet,
+) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title.to_string())
+        .border_style(theme.warn());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(body.to_string())
+            .wrap(Wrap { trim: false })
+            .style(theme.normal()),
+        chunks[0],
+    );
+    frame.render_widget(confirm_button_line(theme, choice, buttons), chunks[1]);
+    frame.render_widget(
+        Paragraph::new("←/→ or Tab focus · Enter activate · y confirm · n/Esc cancel")
+            .style(theme.muted()),
+        chunks[2],
+    );
+}
+
+fn confirm_button_line(
+    theme: Theme,
+    choice: ConfirmChoice,
+    buttons: ConfirmButtonSet,
+) -> Paragraph<'static> {
+    let (cancel_label, yes_label) = match buttons {
+        ConfirmButtonSet::YesCancel => (" Cancel ", " Yes "),
+        ConfirmButtonSet::SudoCancel => (" Cancel ", " Run once with sudo "),
     };
-    format!("{cancel}   {yes}\n\n←/→ focus · Enter · y/n")
+    let cancel_focused = matches!(choice, ConfirmChoice::Cancel);
+    let yes_focused = matches!(choice, ConfirmChoice::Yes);
+
+    let cancel = Span::styled(
+        cancel_label,
+        if cancel_focused {
+            filled_button_style(theme)
+        } else {
+            idle_button_style(theme)
+        },
+    );
+    let yes = Span::styled(
+        yes_label,
+        if yes_focused {
+            filled_button_style(theme)
+        } else {
+            idle_button_style(theme)
+        },
+    );
+    Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        cancel,
+        Span::raw("   "),
+        yes,
+    ]))
+}
+
+/// Filled control: reverse video + bold so focus reads as a real button.
+fn filled_button_style(theme: Theme) -> Style {
+    selected_row_style(theme)
+}
+
+fn idle_button_style(theme: Theme) -> Style {
+    theme.muted().add_modifier(Modifier::DIM)
 }
 
 fn draw_box(frame: &mut Frame<'_>, area: Rect, theme: Theme, title: &str, body: &str) {

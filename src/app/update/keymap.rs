@@ -1,4 +1,5 @@
-//! Input → AppAction maps. Screen-local bindings beat global digit navigation.
+//! Input → AppAction maps.
+//! Digit keys `1`–`7` always change screens; Tab cycles focus into content.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -14,7 +15,7 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         return map_search_key(key);
     }
 
-    // Globals that always win (never digit screen nav yet — locals first).
+    // Globals that always win.
     match (key.code, key.modifiers) {
         (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
             return Some(AppAction::Quit);
@@ -36,9 +37,14 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         _ => {}
     }
 
-    // Screen-local maps take precedence over global digit navigation so Settings
-    // toggles on `1`..=`5` are reachable.
-    let local = match state.screen {
+    // Screen digits beat screen-local maps so Settings never steals 1–7.
+    if let KeyCode::Char(c) = key.code {
+        if let Some(screen) = Screen::from_digit(c) {
+            return Some(AppAction::ChangeScreen(screen));
+        }
+    }
+
+    match state.screen {
         Screen::Dashboard => map_dashboard(key),
         Screen::Processes => map_processes(key),
         Screen::Services => map_services(key),
@@ -46,17 +52,7 @@ pub fn map_key(state: &AppState, key: KeyEvent) -> Option<AppAction> {
         Screen::Storage => map_storage(state, key),
         Screen::Diagnostics => map_diagnostics(key),
         Screen::Settings => map_settings(key),
-    };
-    if local.is_some() {
-        return local;
     }
-
-    if let KeyCode::Char(c) = key.code {
-        if let Some(screen) = Screen::from_digit(c) {
-            return Some(AppAction::ChangeScreen(screen));
-        }
-    }
-    None
 }
 
 fn map_dialog_key(state: &AppState, dialog: &Dialog, key: KeyEvent) -> Option<AppAction> {
@@ -261,11 +257,12 @@ fn map_settings(key: KeyEvent) -> Option<AppAction> {
         KeyCode::Char('p') => Some(AppAction::CyclePerformanceProfile),
         KeyCode::Char('w') => Some(AppAction::ToggleSetting(SettingId::Wallboard)),
         KeyCode::Char('c') => Some(AppAction::ToggleSetting(SettingId::Color)),
-        KeyCode::Char('1') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigterm)),
-        KeyCode::Char('2') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigkill)),
-        KeyCode::Char('3') => Some(AppAction::ToggleSetting(SettingId::ConfirmServiceActions)),
-        KeyCode::Char('4') => Some(AppAction::ToggleSetting(SettingId::EnableSmartProbes)),
-        KeyCode::Char('5') => Some(AppAction::ToggleSetting(SettingId::DiagnosticsLightScan)),
+        // Letter toggles — digits 1–7 are reserved for screen navigation.
+        KeyCode::Char('T') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigterm)),
+        KeyCode::Char('K') => Some(AppAction::ToggleSetting(SettingId::ConfirmSigkill)),
+        KeyCode::Char('A') => Some(AppAction::ToggleSetting(SettingId::ConfirmServiceActions)),
+        KeyCode::Char('M') => Some(AppAction::ToggleSetting(SettingId::EnableSmartProbes)),
+        KeyCode::Char('L') => Some(AppAction::ToggleSetting(SettingId::DiagnosticsLightScan)),
         KeyCode::Char('C') => Some(AppAction::CleanupReportsNow),
         KeyCode::Enter => Some(AppAction::SaveSettings),
         _ => None,
