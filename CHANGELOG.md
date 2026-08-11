@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Sudo elevation re-checks known-unit registry; typed `ServiceActionKind` on trusted argv
 - MSRV raised to **1.95** (lockfile: sysinfo / ratatui / zbus floors)
 - CI/release Actions pins switched to resolvable major tags after broken SHA lookups
-- `deny.toml` advisories schema updated for current cargo-deny
+- `-CI matrix (ubuntu-latest)`, MSRV **1.95**, D-Bus `libdbus-1-dev` on runners; `deny.toml` for current cargo-deny
 
 ### Changed
 

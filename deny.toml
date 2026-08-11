@@ -1,5 +1,5 @@
 # Cargo deny configuration (licenses / bans / sources).
-# Schema aligned with current cargo-deny advisories config.
+# Schema aligned with current cargo-deny (allow-list licenses; no deprecated keys).
 
 [graph]
 all-features = true
@@ -10,7 +10,6 @@ unmaintained = "workspace"
 yanked = "warn"
 
 [licenses]
-unlicensed = "deny"
 allow = [
   "MIT",
   "Apache-2.0",
