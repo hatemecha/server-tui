@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system deps (zbus / D-Bus)
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -47,7 +47,7 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install system deps (zbus / D-Bus)
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Install MSRV 1.95
@@ -64,7 +64,7 @@ jobs:
       NO_COLOR: "1"
       LC_ALL: C
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install system deps (zbus / D-Bus)
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
@@ -74,5 +74,5 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
