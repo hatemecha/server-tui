@@ -27,7 +27,7 @@ jobs:
     steps:
       # Actions use major tags (@v4) intentionally: prior full-SHA pins were
       # unverifiable / broken for this repo. Dependabot tracks github-actions.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
