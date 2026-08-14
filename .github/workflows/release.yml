@@ -98,6 +98,6 @@ jobs:
           generate_release_notes: true
       - name: Attest
         if: hashFiles('release/*.tar.gz') != ''
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "release/*.tar.gz"
